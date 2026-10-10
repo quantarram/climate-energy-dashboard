@@ -120,14 +120,14 @@ Object.keys(byReg).forEach(reg => {
       fillcolor: 'rgba(200,168,74,0.07)', line: {width: 0}}] : []}), CFG);
 });
 document.getElementById('vsub').innerHTML = V.n_resolved ?
-  V.n_resolved.toLocaleString() + ' of ' + V.n_logged.toLocaleString() + ' logged forecast-days scored (issued ' + V.first_issue + ' to ' + V.last_issue + '). Baseline: climatology, the demand at the average temperature for the date (__CD__).' :
+  V.n_scored.toLocaleString() + ' of ' + V.n_logged.toLocaleString() + ' logged forecast-days scored (issued ' + V.first_issue + ' to ' + V.last_issue + '). Baseline: climatology (the demand at the average temperature for the date, __CD__) re-anchored to the demand of the last four weeks, so a warm or cool year does not flatter the forecast.' :
   V.n_logged.toLocaleString() + ' forecast-days logged, none scored yet (observed temperature arrives about 6 days behind).';
 if (V.n_resolved) {
   const L = V.by_lead.filter(r => r.n >= 30);
   const x = L.map(r => r.lead);
   Plotly.newPlot('vMape', [
     {x: x, y: L.map(r => r.mape_fc), name: 'Forecast weather', mode: 'lines+markers', line: {color: '#5B8DBE', width: 2}},
-    {x: x, y: L.map(r => r.mape_clim), name: 'Climatology', mode: 'lines', line: {color: '#B5726A', width: 1.8, dash: 'dot'}},
+    {x: x, y: L.map(r => r.mape_clim), name: 'Climatology (anchored)', mode: 'lines', line: {color: '#B5726A', width: 1.8, dash: 'dot'}},
     {x: x, y: L.map(r => r.mape_oracle), name: 'Observed weather (model limit)', mode: 'lines', line: {color: '#7FB08A', width: 1.5}}
   ], Object.assign({}, BASE, {xaxis: {title: {text: 'lead (days)', font: {size: 9}}, gridcolor: '#1B1E1B'}, yaxis: {gridcolor: '#1B1E1B', zeroline: false, ticksuffix: '%', rangemode: 'tozero'}}), CFG);
   Plotly.newPlot('vTemp', [
@@ -143,6 +143,7 @@ document.getElementById('vnote').innerHTML =
   'Demand model: daily electricity demand regressed on heating and cooling degree days (base 65&deg;F, with squares), day of week and a trend, fitted per grid region on 2023 to 2025 and held out on 2026. ' +
   'On observed temperature the 2026 holdout error is ' + Object.keys(D.impact_model).map(k => k + ' ' + D.impact_model[k].test_mape_model_obs_temp.toFixed(1) + '% (climatology ' + D.impact_model[k].test_mape_climatology.toFixed(1) + '%)').join(', ') + '. ' +
   'Regional temperature is a population-weighted sample at each region&rsquo;s main load centres (approximate weights); the model has no holiday, humidity or behind-the-meter solar terms. ' +
+  'Over June to October 2026 the observed temperature averaged about 0.7 to 1 &deg;C above the 1996 to 2025 climatology, which is why the unanchored climatology demand reads 2 to 6% low and the card percentages above include that warm offset. ' +
   'Forecast issues from 1 June 2026 onward are archived ECMWF runs, scored exactly as they would have been live.';
 
 // ---------------- wind and solar ----------------
@@ -229,7 +230,7 @@ document.getElementById('vnote').innerHTML =
   });
   document.getElementById('ctable').innerHTML = t || '<div class="note">No full forecast week yet.</div>';
   document.getElementById('cvsub').innerHTML = CV.n_weather ?
-    CV.n_weather.toLocaleString() + ' ten-state-average weeks scored on weather drivers and ' + CV.n_condition.toLocaleString() + ' on crop-condition change (issued ' + CV.first_issue + ' to ' + CV.last_issue + '; ' + CV.n_logged.toLocaleString() + ' logged). Baseline: climatology, the __CC__ average for that week of the year.' :
+    CV.n_weather.toLocaleString() + ' forecasts scored on weather drivers and ' + (CV.n_condition / 2).toLocaleString() + ' per crop on the rating change, covering ' + (CV.condition.length ? CV.condition[0].weeks : 0) + ' distinct weeks (each week is forecast from several issue dates, so these overlap) (issued ' + CV.first_issue + ' to ' + CV.last_issue + '; ' + CV.n_logged.toLocaleString() + ' logged). Baseline: climatology, the __CC__ average for that week of the year.' :
     CV.n_logged.toLocaleString() + ' state-weeks logged, none scored yet.';
   [['kdd', 'cKdd', ''], ['vpd', 'cVpd', ''], ['rain', 'cRain', '']].forEach(([f, id]) => {
     const L = CV.weather.filter(r => r.feature === f); if (!L.length) return;
@@ -239,7 +240,7 @@ document.getElementById('vnote').innerHTML =
     ], Object.assign({}, BASE, {xaxis: {title: {text: 'lead to week end (days)', font: {size: 9}}, gridcolor: '#1B1E1B'}, yaxis: {gridcolor: '#1B1E1B', zeroline: false, rangemode: 'tozero'}}), CFG);
   });
   if (CV.condition.length) {
-    const x = CV.condition.map(r => r.crop === 'corn' ? 'Corn (n=' + r.n + ')' : 'Soybeans (n=' + r.n + ')');
+    const x = CV.condition.map(r => (r.crop === 'corn' ? 'Corn' : 'Soybeans') + ' (' + r.weeks + ' weeks)');
     Plotly.newPlot('cCond', [
       {x: x, y: CV.condition.map(r => r.mae_fc), name: 'Forecast', type: 'bar', marker: {color: '#5B8DBE'}, text: CV.condition.map(r => r.mae_fc.toFixed(2)), textposition: 'outside'},
       {x: x, y: CV.condition.map(r => r.mae_clim), name: 'Climatological change', type: 'bar', marker: {color: '#B5726A'}, text: CV.condition.map(r => r.mae_clim.toFixed(2)), textposition: 'outside'},
@@ -247,7 +248,7 @@ document.getElementById('vnote').innerHTML =
     ], Object.assign({}, BASE, {barmode: 'group', xaxis: {type: 'category', tickfont: {size: 9}}, yaxis: {gridcolor: '#1B1E1B', zeroline: false, rangemode: 'tozero', ticksuffix: ' pts'}}), CFG);
   }
   let v = '<table><tr><th>Crop</th><th>Weeks scored (live)</th><th>Error, forecast-driven</th><th>Error, climatological change</th><th>Error, no change</th><th>Correlation (forecast, actual)</th><th>Leave-one-year-out, 12 seasons: model / climatology / no change (points)</th></tr>';
-  CV.condition.forEach(r => { const m = C.model[r.crop.toUpperCase()]; v += '<tr><td>' + (r.crop === 'corn' ? 'Corn' : 'Soybeans') + '</td><td>' + r.n.toLocaleString() + '</td><td>' + r.mae_fc.toFixed(2) + ' pts</td><td>' + r.mae_clim.toFixed(2) + ' pts</td><td>' + r.mae_zero.toFixed(2) + ' pts</td><td>' + r.corr.toFixed(2) + '</td><td>' + m.loyo_mae_model.toFixed(2) + ' / ' + m.loyo_mae_clim.toFixed(2) + ' / ' + m.loyo_mae_zero.toFixed(2) + ' (r = ' + m.loyo_corr.toFixed(2) + ', ' + m.n_weeks + ' weeks)' + '</td></tr>'; });
+  CV.condition.forEach(r => { const m = C.model[r.crop.toUpperCase()]; v += '<tr><td>' + (r.crop === 'corn' ? 'Corn' : 'Soybeans') + '</td><td>' + r.weeks + ' (' + r.n.toLocaleString() + ' forecasts)</td><td>' + r.mae_fc.toFixed(2) + ' pts</td><td>' + r.mae_clim.toFixed(2) + ' pts</td><td>' + r.mae_zero.toFixed(2) + ' pts</td><td>' + r.corr.toFixed(2) + '</td><td>' + m.loyo_mae_model.toFixed(2) + ' / ' + m.loyo_mae_clim.toFixed(2) + ' / ' + m.loyo_mae_zero.toFixed(2) + ' (r = ' + m.loyo_corr.toFixed(2) + ', ' + m.n_weeks + ' weeks)' + '</td></tr>'; });
   document.getElementById('cvtable').innerHTML = v + '</table>';
   document.getElementById('cnote').innerHTML =
     'Weather drivers come from the forecast at three points in each state&rsquo;s main growing areas (approximate locations): heat-stress degree days are daily maximum temperature above 30 &deg;C, summed over the week; vapour-pressure deficit is the 12:00 to 18:00 local mean; rainfall is the weekly total. ' +

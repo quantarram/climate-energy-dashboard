@@ -97,8 +97,28 @@ def score(model, today=None):
     return n
 
 
+def _anchor_factors(res, col, lag=7, window=28):
+    """Trailing level factor sum(observed)/sum(model) per region over `window` valid days that were already known `lag`
+    days before each issue date; returns a Series aligned to res (NaN where no factor exists yet)."""
+    out = pd.Series(np.nan, index=res.index)
+    for reg, g in res.groupby("region"):
+        d = g.assign(v=pd.to_datetime(g["valid_date"])).groupby("v")[["demand_obs_mwh", col]].sum()
+        idx = pd.date_range(d.index.min(), d.index.max())
+        roll = d.reindex(idx).rolling(window, min_periods=14).sum()
+        ratio = (roll["demand_obs_mwh"] / roll[col])
+        for i, row in g.iterrows():
+            s = ratio[:pd.Timestamp(row["issue_date"]) - pd.Timedelta(days=lag)].dropna()
+            out[i] = s.iloc[-1] if len(s) else np.nan
+    return out
+
+
 def stats(led=None):
-    """Verification vs climatology, by lead day and by region (resolved rows only)."""
+    """Verification vs climatology, by lead day and by region (resolved rows only).
+
+    The 30-year climatology reads low in a warm year (and a model run at the mean temperature sits below the mean of its
+    runs), which would flatter any forecast. So the baseline scored here is the climatology re-anchored to the demand
+    seen over the last 28 days (valid days at least a week old at issue time, the same anchoring the wind and solar
+    baselines get); the unanchored figure is kept as mape_clim_raw. Forecasts are scored as issued."""
     led = load() if led is None else led
     res = led[led["status"] == "RESOLVED"].copy()
     if res.empty:
@@ -106,19 +126,25 @@ def stats(led=None):
     for c in ("t_fc_c", "t_clim_c", "t_obs_c", "demand_fc_mwh", "demand_clim_mwh", "demand_obs_mwh",
               "demand_from_obs_t_mwh"):
         res[c] = res[c].astype(float)
+    res["f_clim"] = _anchor_factors(res, "demand_clim_mwh")
+    n_all = len(res)
+    res = res.dropna(subset=["f_clim"])
     res["t_err_fc"] = (res["t_fc_c"] - res["t_obs_c"]).abs()
     res["t_err_clim"] = (res["t_clim_c"] - res["t_obs_c"]).abs()
-    for k, col in (("fc", "demand_fc_mwh"), ("clim", "demand_clim_mwh"), ("oracle", "demand_from_obs_t_mwh")):
-        res[f"ape_{k}"] = (res[col] - res["demand_obs_mwh"]).abs() / res["demand_obs_mwh"] * 100
+    ape = lambda p, o: (p - o).abs() / o * 100
+    res["ape_fc"] = ape(res["demand_fc_mwh"], res["demand_obs_mwh"])
+    res["ape_clim"] = ape(res["demand_clim_mwh"] * res["f_clim"], res["demand_obs_mwh"])
+    res["ape_clim_raw"] = ape(res["demand_clim_mwh"], res["demand_obs_mwh"])
+    res["ape_oracle"] = ape(res["demand_from_obs_t_mwh"], res["demand_obs_mwh"])
 
     def block(g):
         return {"n": int(len(g)),
                 "t_mae_fc": round(float(g["t_err_fc"].mean()), 3), "t_mae_clim": round(float(g["t_err_clim"].mean()), 3),
                 "mape_fc": round(float(g["ape_fc"].mean()), 3), "mape_clim": round(float(g["ape_clim"].mean()), 3),
-                "mape_oracle": round(float(g["ape_oracle"].mean()), 3)}
+                "mape_clim_raw": round(float(g["ape_clim_raw"].mean()), 3), "mape_oracle": round(float(g["ape_oracle"].mean()), 3)}
     by_lead = [dict(lead=int(l), **block(g)) for l, g in res.groupby("lead_days")]
     by_region = [dict(region=r, **block(g)) for r, g in res.groupby("region")]
-    return {"n_logged": int(len(led)), "n_resolved": int(len(res)),
+    return {"n_logged": int(len(led)), "n_resolved": int(n_all), "n_scored": int(len(res)),
             "first_issue": str(res["issue_date"].min()), "last_issue": str(res["issue_date"].max()),
             "by_lead": by_lead, "by_region": by_region, "overall": block(res)}
 
