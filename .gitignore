@@ -4,3 +4,4 @@ __pycache__/
 data/backfill*.log
 .DS_Store
 docs/
+.cache/

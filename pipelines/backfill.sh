@@ -4,6 +4,6 @@
 cd "$(dirname "$0")/.."
 d="$1"; end="$2"
 while [ "$d" -le "$end" ]; do
-  .venv/bin/python pipelines/run_daily.py --date "$d" --backfill --workers 16 || echo "FAILED $d"
+  .venv/bin/python pipelines/run_daily.py --date "$d" --backfill --workers 16 $3 || echo "FAILED $d"
   d=$(date -j -v+1d -f %Y%m%d "$d" +%Y%m%d)
 done

@@ -39,3 +39,32 @@ def daily_demand(name, bas):
     g = df.groupby(["Balancing Authority", "date"])["demand"].agg(["sum", "count"]).reset_index()
     g = g[(g["count"] >= 23) & (g["count"] <= 25)]
     return g.rename(columns={"Balancing Authority": "ba", "sum": "demand_mwh"})[["ba", "date", "demand_mwh"]]
+
+
+GEN_COLS = {  # column names changed over the years; first match wins
+    "wind": ["Net Generation (MW) from Wind without Integrated Battery Storage (Adjusted)",
+             "Net Generation (MW) from Wind (Adjusted)"],
+    "solar": ["Net Generation (MW) from Solar without Integrated Battery Storage (Adjusted)",
+              "Net Generation (MW) from Solar (Adjusted)"],
+}
+
+
+def daily_generation(name, bas):
+    """Daily wind and solar generation (MWh) per BA for one six-month file (local data date, 23-25 valid hours)."""
+    raw = _download(name)
+    wanted = {c for cs in GEN_COLS.values() for c in cs} | {"Balancing Authority", "Data Date"}
+    df = pd.read_csv(io.BytesIO(raw), usecols=lambda c: c in wanted, low_memory=False)
+    df = df[df["Balancing Authority"].isin(bas)].copy()
+    df["date"] = pd.to_datetime(df["Data Date"], format="%m/%d/%Y")
+    out = []
+    for res, cands in GEN_COLS.items():
+        col = next((c for c in cands if c in df), None)
+        if col is None:
+            continue
+        x = df[["Balancing Authority", "date"]].copy()
+        x["v"] = pd.to_numeric(df[col], errors="coerce")
+        g = x.groupby(["Balancing Authority", "date"])["v"].agg(["sum", "count"]).reset_index()
+        g = g[(g["count"] >= 23) & (g["count"] <= 25)]
+        g["resource"] = res
+        out.append(g.rename(columns={"Balancing Authority": "ba", "sum": "gen_mwh"})[["ba", "resource", "date", "gen_mwh"]])
+    return pd.concat(out)

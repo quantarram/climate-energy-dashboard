@@ -121,3 +121,187 @@ def stats(led=None):
     return {"n_logged": int(len(led)), "n_resolved": int(len(res)),
             "first_issue": str(res["issue_date"].min()), "last_issue": str(res["issue_date"].max()),
             "by_lead": by_lead, "by_region": by_region, "overall": block(res)}
+
+
+# ---------------------------------------------------------------------------
+# Wind and solar ledger (same discipline as above, separate file)
+# ---------------------------------------------------------------------------
+RPATH = os.path.join(ROOT, "data", "ledger_wind_solar.csv")
+RKEY = ["issue_date", "model", "region", "resource", "valid_date"]
+RFC = ["issue_date", "model", "region", "resource", "valid_date", "lead_days", "gen_fc_mwh", "gen_normal_mwh"]
+ROUT = ["status", "gen_obs_mwh", "gen_from_obs_weather_mwh", "source"]
+RCOLS = RFC + ROUT
+
+
+def rload():
+    if not os.path.exists(RPATH):
+        return pd.DataFrame(columns=RCOLS)
+    return pd.read_csv(RPATH, dtype={"issue_date": str, "valid_date": str}).reindex(columns=RCOLS)
+
+
+def rsave(df):
+    df.sort_values(["issue_date", "model", "region", "resource", "valid_date"]).to_csv(RPATH, index=False)
+
+
+def rappend(new, source="live"):
+    led = rload()
+    new = new.copy()
+    new["status"], new["source"] = "PENDING", source
+    for c in ROUT:
+        if c not in new:
+            new[c] = np.nan
+    new = new.reindex(columns=RCOLS)
+    have = set(map(tuple, led[RKEY].astype(str).values))
+    new = new[[tuple(map(str, k)) not in have for k in new[RKEY].values]]
+    if len(new):
+        rsave(pd.concat([led, new], ignore_index=True) if len(led) else new)
+    return len(new)
+
+
+def rscore(rmodel, today=None):
+    """Fill outcomes for pending wind/solar rows: EIA daily generation, plus the generation the model gives
+    from ERA5 observed weather (the model's own limit)."""
+    from . import renewables
+    led = rload()
+    today = pd.Timestamp(today) if today is not None else pd.Timestamp.utcnow().tz_localize(None).normalize()
+    due = led[(led["status"] == "PENDING") &
+              (pd.to_datetime(led["valid_date"]) <= today - pd.Timedelta(days=ERA5_LAG_DAYS))]
+    if due.empty:
+        return 0
+    dates = sorted(due["valid_date"].unique())
+    start, end = dates[0], dates[-1]
+    need = {(d[:4], "Jan_Jun" if int(d[5:7]) <= 6 else "Jul_Dec") for d in dates}
+    gen = pd.concat([eia.daily_generation(f"EIA930_BALANCE_{y}_{h}", list(regions.SITES)) for y, h in sorted(need)])
+    obs = {(r.ba, r.resource, r.date): r.gen_mwh for r in gen.itertuples()}
+    # observed weather drivers at each site (ERA5 hourly) -> model-implied generation
+    feats = {}
+    for ba, kind, site, lat, lon in regions.site_list():
+        h = truth.site_hourly(lat, lon, regions.REGIONS[ba]["tz"], start, end)
+        feats[(ba, kind, site)] = renewables.daily_features(h, kind)
+    n = 0
+    for idx, r in due.iterrows():
+        vd = pd.Timestamp(r["valid_date"])
+        g = obs.get((r["region"], r["resource"], vd))
+        m = rmodel["models"].get(f"{r['region']}|{r['resource']}")
+        if g is None or m is None or pd.isna(g):
+            continue
+        rows_ = [feats[(r["region"], r["resource"], s)].loc[vd] if vd in feats[(r["region"], r["resource"], s)].index else None
+                 for s in m["sites"]]
+        if any(x is None or x.isna().any() for x in rows_):
+            continue
+        oracle = float(renewables.generate(m, [vd], np.concatenate([x.values for x in rows_])[None, :])[0])
+        led.loc[idx, ["gen_obs_mwh", "gen_from_obs_weather_mwh", "status"]] = [round(float(g), 0), round(oracle, 0), "RESOLVED"]
+        n += 1
+    if n:
+        rsave(led)
+    return n
+
+
+def rstats(led=None):
+    led = rload() if led is None else led
+    res = led[led["status"] == "RESOLVED"].copy()
+    out = {"n_logged": int(len(led)), "n_resolved": int(len(res)), "by_lead": [], "by_series": []}
+    if res.empty:
+        return out
+    for c in ("gen_fc_mwh", "gen_normal_mwh", "gen_obs_mwh", "gen_from_obs_weather_mwh"):
+        res[c] = res[c].astype(float)
+    den = np.maximum(res["gen_obs_mwh"], 1.0)
+    for k, col in (("fc", "gen_fc_mwh"), ("clim", "gen_normal_mwh"), ("oracle", "gen_from_obs_weather_mwh")):
+        res[f"ape_{k}"] = (res[col] - res["gen_obs_mwh"]).abs() / den * 100
+
+    def block(g):
+        return {"n": int(len(g)), "mape_fc": round(float(g["ape_fc"].mean()), 2),
+                "mape_clim": round(float(g["ape_clim"].mean()), 2), "mape_oracle": round(float(g["ape_oracle"].mean()), 2)}
+    out["first_issue"], out["last_issue"] = str(res["issue_date"].min()), str(res["issue_date"].max())
+    for res_kind, gk in res.groupby("resource"):
+        for lead, g in gk.groupby("lead_days"):
+            out["by_lead"].append(dict(resource=res_kind, lead=int(lead), **block(g)))
+    for (reg, kind), g in res.groupby(["region", "resource"]):
+        out["by_series"].append(dict(region=reg, resource=kind, **block(g)))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Level calibration for wind/solar. Weather -> generation maps drift as capacity is added, and a 0.25 degree
+# forecast grid can read systematically lower or higher than the reanalysis the map was fitted on (mountain-pass
+# wind sites especially). Each series is therefore rescaled to the last 28 days of observed output, separately for
+# the forecast, the normal-weather baseline and the observed-weather model, using only days already known at
+# issue time (valid date at least 7 days old). Correlation with observed output is untouched; only the level moves.
+# ---------------------------------------------------------------------------
+CAL_WINDOW_DAYS = 28
+CAL_LAG_DAYS = 7
+_SRC = {"fc": "gen_fc_mwh", "clim": "gen_normal_mwh", "oracle": "gen_from_obs_weather_mwh"}
+
+
+def _ratio_tables(res):
+    """{(region, resource): DataFrame(index=valid date; columns fc/clim/oracle)} of trailing observed/modelled ratios."""
+    out = {}
+    d = res.copy()
+    for c in list(_SRC.values()) + ["gen_obs_mwh"]:
+        d[c] = d[c].astype(float)
+    d["valid_date"] = pd.to_datetime(d["valid_date"])
+    for (reg, kind), g in d.groupby(["region", "resource"]):
+        daily = g.groupby("valid_date")[list(_SRC.values()) + ["gen_obs_mwh"]].sum()
+        # per-valid-date sums across leads: the obs column counts once per lead row, matching the model columns
+        idx = pd.date_range(daily.index.min(), daily.index.max())
+        daily = daily.reindex(idx)
+        roll = daily.rolling(CAL_WINDOW_DAYS, min_periods=14).sum()
+        out[(reg, kind)] = pd.DataFrame({k: roll["gen_obs_mwh"] / roll[col] for k, col in _SRC.items()})
+    return out
+
+
+def calibrated_forecast(rdf, led=None):
+    """Latest forecast rows with the level calibration applied (records for the dashboard payload)."""
+    led = rload() if led is None else led
+    res = led[led["status"] == "RESOLVED"]
+    tabs = _ratio_tables(res) if len(res) else {}
+    rows = []
+    for r in rdf.to_dict(orient="records"):
+        t = tabs.get((r["region"], r["resource"]))
+        f_fc = f_cl = 1.0
+        if t is not None and t.dropna().shape[0]:
+            last = t.dropna().iloc[-1]
+            f_fc, f_cl = float(last["fc"]), float(last["clim"])
+        rows.append(dict(r, factor=round(f_fc, 3), gen_fc_mwh=round(r["gen_fc_mwh"] * f_fc, 0),
+                         gen_normal_mwh=round(r["gen_normal_mwh"] * f_cl, 0)))
+    return rows
+
+
+def rstats_calibrated(led=None):
+    """Verification of wind/solar forecasts after level calibration (rows with factors known at issue time only)."""
+    led = rload() if led is None else led
+    res = led[led["status"] == "RESOLVED"].copy()
+    out = {"n_logged": int(len(led)), "n_resolved": int(len(res)), "n_scored": 0, "by_lead": [], "by_series": []}
+    if res.empty:
+        return out
+    for c in list(_SRC.values()) + ["gen_obs_mwh"]:
+        res[c] = res[c].astype(float)
+    tabs = _ratio_tables(res)
+    f = {k: [] for k in _SRC}
+    for r in res.itertuples():
+        t = tabs.get((r.region, r.resource))
+        d = pd.Timestamp(r.issue_date) - pd.Timedelta(days=CAL_LAG_DAYS)
+        s = t[:d].dropna() if t is not None else None
+        for k in _SRC:
+            f[k].append(float(s[k].iloc[-1]) if s is not None and len(s) else np.nan)
+    for k in _SRC:
+        res[f"f_{k}"] = f[k]
+    res = res.dropna(subset=["f_fc", "f_clim", "f_oracle"])
+    out["n_scored"] = int(len(res))
+    if res.empty:
+        return out
+    # normalised mean absolute error: absolute error as a % of the series' mean daily output (robust to low-output days)
+    den = res.groupby(["region", "resource"])["gen_obs_mwh"].transform("mean")
+    for k, col in _SRC.items():
+        res[f"ape_{k}"] = (res[col] * res[f"f_{k}"] - res["gen_obs_mwh"]).abs() / den * 100
+
+    def block(g):
+        return {"n": int(len(g)), "nmae_fc": round(float(g["ape_fc"].mean()), 2),
+                "nmae_clim": round(float(g["ape_clim"].mean()), 2), "nmae_oracle": round(float(g["ape_oracle"].mean()), 2)}
+    out["first_issue"], out["last_issue"] = str(res["issue_date"].min()), str(res["issue_date"].max())
+    for kind, gk in res.groupby("resource"):
+        for lead, g in gk.groupby("lead_days"):
+            out["by_lead"].append(dict(resource=kind, lead=int(lead), **block(g)))
+    for (reg, kind), g in res.groupby(["region", "resource"]):
+        out["by_series"].append(dict(region=reg, resource=kind, **block(g)))
+    return out

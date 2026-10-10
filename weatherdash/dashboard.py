@@ -45,7 +45,7 @@ footer{padding:24px var(--pad) 40px;text-align:center;font-family:var(--mono);fo
 <main>
 <div class="banner"><b>Pilot: US electricity demand.</b> Each day the ECMWF 00z forecast is turned into regional temperature, degree days and
 electricity demand for six US grid regions, next to the demand that normal weather would imply. Every forecast is logged and scored against
-observed temperature and demand once they are known, with climatology as the baseline. Wind, solar and crop-stress layers are next.</div>
+observed temperature and demand once they are known, with climatology as the baseline. Wind and solar generation for the same regions is below; crop stress is next.</div>
 <div class="cards" id="cards"></div>
 <section id="regions"><div class="s-title">Demand forecast vs normal, next 14 days</div>
 <div class="s-sub">Daily electricity demand, GWh per day. Solid: forecast weather. Dashed: demand at normal temperature for the date. Shaded: days beyond the point where the forecast has scored worse than normal weather.</div>
@@ -54,6 +54,15 @@ observed temperature and demand once they are known, with climatology as the bas
 <div class="charts"><div><div class="c-label">Demand error by lead day (MAPE, %)</div><div id="vMape"></div></div>
 <div><div class="c-label">Temperature error by lead day (MAE, &deg;C)</div><div id="vTemp"></div></div></div>
 <div class="table-wrap" id="vtable"></div><div class="note" id="vnote"></div></section>
+<section id="renew"><div class="s-title">Wind and solar generation, next 14 days</div>
+<div class="s-sub">Daily generation, GWh, from forecast wind at 100 m and surface solar radiation at each region&rsquo;s generation areas, mapped to EIA-reported output.
+Solid: forecast weather. Dashed: generation under normal weather for the date. Levels are anchored to the last 28 days of observed output; shaded days are beyond where the forecast scores better than normal weather.</div>
+<div class="table-wrap" id="rtable"></div>
+<div class="charts" id="rcharts" style="margin-top:16px"></div></section>
+<section id="rverify"><div class="s-title">How the wind and solar forecasts have scored</div><div class="s-sub" id="rsub"></div>
+<div class="charts"><div><div class="c-label">Wind: generation error by lead day (MAPE, %)</div><div id="rWind"></div></div>
+<div><div class="c-label">Solar: generation error by lead day (MAPE, %)</div><div id="rSolar"></div></div></div>
+<div class="table-wrap" id="rvtable"></div><div class="note" id="rnote"></div></section>
 </main>
 <footer>Contains ECMWF open data (IFS), CC-BY-4.0 &middot; Observed temperature: ERA5 (Copernicus) via Open-Meteo, CC-BY-4.0 &middot; Demand: U.S. EIA Form 930<br>
 Research record, not a trading or operational tool.</footer>
@@ -123,6 +132,63 @@ document.getElementById('vnote').innerHTML =
   'On observed temperature the 2026 holdout error is ' + Object.keys(D.impact_model).map(k => k + ' ' + D.impact_model[k].test_mape_model_obs_temp.toFixed(1) + '% (climatology ' + D.impact_model[k].test_mape_climatology.toFixed(1) + '%)').join(', ') + '. ' +
   'Regional temperature is a population-weighted sample at each region&rsquo;s main load centres (approximate weights); the model has no holiday, humidity or behind-the-meter solar terms. ' +
   'Forecast issues from 1 June 2026 onward are archived ECMWF runs, scored exactly as they would have been live.';
+
+// ---------------- wind and solar ----------------
+(function () {
+  const R = D.renewables; if (!R) return;
+  const RV = R.verification;
+  const KIND = {wind: 'Wind', solar: 'Solar'};
+  function rskill(kind) {
+    let last = null;
+    for (const r of RV.by_lead.filter(r => r.resource === kind && r.n >= 30)) { if (r.nmae_fc <= r.nmae_clim) last = r.lead; else break; }
+    return last;
+  }
+  const sk = {wind: rskill('wind'), solar: rskill('solar')};
+  const series = {};
+  R.forecast.forEach(r => { const k = r.region + '|' + r.resource; (series[k] = series[k] || []).push(r); });
+  let t = '<table><tr><th>Region</th><th>Resource</th><th>Next 7 days, GWh/day</th><th>vs normal weather</th><th>Holdout error, observed weather</th></tr>';
+  const charts = document.getElementById('rcharts');
+  Object.keys(series).sort().forEach(k => {
+    const rows = series[k].filter(r => r.lead_days <= 13), wk = rows.filter(r => r.lead_days <= 6);
+    const [reg, kind] = k.split('|');
+    const mean = (a, f) => a.reduce((s, r) => s + f(r), 0) / a.length;
+    const anom = (mean(wk, r => r.gen_fc_mwh) / mean(wk, r => r.gen_normal_mwh) - 1) * 100;
+    const im = R.impact_model[k];
+    t += '<tr><td>' + LABEL[reg] + '</td><td>' + KIND[kind] + '</td><td>' + (mean(wk, r => r.gen_fc_mwh) / 1000).toFixed(1) + '</td><td>' +
+      (anom >= 0 ? '+' : '') + anom.toFixed(0) + '%</td><td>' + im.test_nmae_model_obs_weather.toFixed(0) + '% (normal ' + im.test_nmae_normal_weather.toFixed(0) + '%)</td></tr>';
+    const d = document.createElement('div');
+    d.innerHTML = '<div class="c-label">' + LABEL[reg] + ' &mdash; ' + KIND[kind] + '</div><div id="rc_' + reg + '_' + kind + '"></div>';
+    charts.appendChild(d);
+    const cut = sk[kind];
+    Plotly.newPlot('rc_' + reg + '_' + kind, [
+      {x: rows.map(r => r.valid_date), y: rows.map(r => r.gen_fc_mwh / 1000), name: 'Forecast', mode: 'lines+markers', line: {color: kind === 'wind' ? '#5B8DBE' : '#C8A84A', width: 2}, marker: {size: 4}},
+      {x: rows.map(r => r.valid_date), y: rows.map(r => r.gen_normal_mwh / 1000), name: 'Normal', mode: 'lines', line: {color: '#7A8F7A', width: 1.5, dash: 'dot'}}
+    ], Object.assign({}, BASE, {yaxis: {gridcolor: '#1B1E1B', zeroline: false, ticksuffix: ' GWh', rangemode: 'tozero'},
+      shapes: (cut !== null && rows.some(r => r.lead_days > cut)) ? [{type: 'rect', xref: 'x', yref: 'paper',
+        x0: rows.find(r => r.lead_days === cut + 1).valid_date, x1: rows[rows.length - 1].valid_date, y0: 0, y1: 1,
+        fillcolor: 'rgba(200,168,74,0.07)', line: {width: 0}}] : []}), CFG);
+  });
+  document.getElementById('rtable').innerHTML = t + '</table>';
+  document.getElementById('rsub').innerHTML = RV.n_scored ?
+    RV.n_scored.toLocaleString() + ' forecast-days scored after level calibration (issued ' + RV.first_issue + ' to ' + RV.last_issue + '; ' + RV.n_logged.toLocaleString() + ' logged). Baseline: generation under normal weather for the date.' :
+    RV.n_logged.toLocaleString() + ' forecast-days logged, none scored yet.';
+  ['wind', 'solar'].forEach(kind => {
+    const L = RV.by_lead.filter(r => r.resource === kind && r.n >= 30); if (!L.length) return;
+    const x = L.map(r => r.lead);
+    Plotly.newPlot(kind === 'wind' ? 'rWind' : 'rSolar', [
+      {x: x, y: L.map(r => r.nmae_fc), name: 'Forecast weather', mode: 'lines+markers', line: {color: '#5B8DBE', width: 2}},
+      {x: x, y: L.map(r => r.nmae_clim), name: 'Normal weather', mode: 'lines', line: {color: '#B5726A', width: 1.8, dash: 'dot'}},
+      {x: x, y: L.map(r => r.nmae_oracle), name: 'Observed weather', mode: 'lines', line: {color: '#7FB08A', width: 1.5}}
+    ], Object.assign({}, BASE, {xaxis: {title: {text: 'lead (days)', font: {size: 9}}, gridcolor: '#1B1E1B'}, yaxis: {gridcolor: '#1B1E1B', zeroline: false, ticksuffix: '%', rangemode: 'tozero'}}), CFG);
+  });
+  let v = '<table><tr><th>Region</th><th>Resource</th><th>Forecast-days</th><th>Error, forecast</th><th>Error, normal</th><th>Error, observed weather</th></tr>';
+  RV.by_series.forEach(r => { v += '<tr><td>' + LABEL[r.region] + '</td><td>' + KIND[r.resource] + '</td><td>' + r.n.toLocaleString() + '</td><td>' + r.nmae_fc.toFixed(1) + '%</td><td>' + r.nmae_clim.toFixed(1) + '%</td><td>' + r.nmae_oracle.toFixed(1) + '%</td></tr>'; });
+  document.getElementById('rvtable').innerHTML = v + '</table>';
+  document.getElementById('rnote').innerHTML =
+    'Wind: ERA5 or forecast wind at 100 m at candidate generation areas, through a generic turbine curve, weighted by site with weights learned from EIA output; solar: surface solar radiation, same method; both with a linear capacity-growth term fitted on 2023 to 2025. ' +
+    'Daily generation from a few weather points is a rough measure, wind especially: even with observed weather the wind error is large, so wind levels should be read as a guide to windier or calmer than normal, not as a megawatt forecast. ' +
+    'Error is the mean absolute error of daily generation as a percentage of the series&rsquo; mean daily output; rows count from the first issue with a calibration factor known at issue time (28-day window, at least 7 days old).';
+})();
 </script></body></html>"""
 
 

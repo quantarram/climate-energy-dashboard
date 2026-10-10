@@ -38,19 +38,30 @@ def main():
     ap.add_argument("--backfill", action="store_true")
     ap.add_argument("--no-score", action="store_true")
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--renewables-only", action="store_true", help="backfill the wind/solar ledger only")
     args = ap.parse_args()
     now = datetime.now(timezone.utc)
     date = args.date or latest_available_date(now)
-    df = forecast.run(date, 0, workers=args.workers)
-    n = ledger.append(df, source="backfill" if args.backfill else "live")
-    print(f"IFS {date} 00z: {len(df)} forecast rows, {n} new in ledger")
+    src = "backfill" if args.backfill else "live"
+    if not args.renewables_only:
+        df = forecast.run(date, 0, workers=args.workers)
+        n = ledger.append(df, source=src)
+        print(f"IFS {date} 00z: {len(df)} temperature/demand rows, {n} new in ledger")
+    rdf = forecast.run_renewables(date, 0, workers=args.workers)
+    rn = ledger.rappend(rdf, source=src)
+    print(f"IFS {date} 00z: {len(rdf)} wind/solar rows, {rn} new in ledger")
     if args.backfill:
         return
     if not args.no_score:
-        print("scored", ledger.score(forecast.load_model()), "rows")
+        print("scored", ledger.score(forecast.load_model()), "temperature/demand rows")
+        print("scored", ledger.rscore(forecast.load_renewables()), "wind/solar rows")
     payload = {"generated_utc": now.strftime("%Y-%m-%d %H:%M"), "issue_date": df["issue_date"].iloc[0],
                "model": df["model"].iloc[0], "forecast": df.to_dict(orient="records"),
-               "verification": ledger.stats(), "impact_model": {
+               "verification": ledger.stats(),
+               "renewables": {"forecast": ledger.calibrated_forecast(rdf), "verification": ledger.rstats_calibrated(),
+                              "impact_model": {k: {x: v[x] for x in ("test_nmae_model_obs_weather", "test_nmae_normal_weather", "test_bias_pct", "n_test")}
+                                               for k, v in forecast.load_renewables()["models"].items()}},
+               "impact_model": {
                    k: {x: v[x] for x in ("test_mape_model_obs_temp", "test_mape_climatology", "n_test")}
                    for k, v in forecast.load_model()["regions"].items()}}
     json.dump(payload, open(os.path.join(ROOT, "data", "latest.json"), "w"))

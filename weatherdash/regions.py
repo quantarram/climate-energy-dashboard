@@ -51,3 +51,43 @@ def city_tz(region, city):
 def all_points():
     """[(region, city, lat, lon, weight)] in a stable order."""
     return [(r, c, v[0], v[1], v[2]) for r, d in REGIONS.items() for c, v in d["cities"].items()]
+
+
+# ---------------------------------------------------------------------------
+# Wind and solar: candidate generation areas per balancing authority. Capacity at each site is not
+# known here, so the weights are *learned* from observed EIA-930 generation (see renewables.py);
+# the candidates only need to cover where the plants are. (lat, lon)
+# ---------------------------------------------------------------------------
+SITES = {
+    "ERCO": {
+        "wind": {"Panhandle": (35.2, -101.8), "Roscoe": (32.45, -100.54), "Abilene": (32.4, -99.7),
+                 "Midland-Pecos": (31.4, -103.5), "Kenedy": (27.8, -97.6), "Raymondville": (26.5, -97.8),
+                 "Lubbock": (33.6, -101.9)},
+        "solar": {"Pecos": (31.4, -103.5), "Fort Stockton": (30.9, -102.9), "Van Horn": (31.0, -104.8),
+                  "Del Rio-Uvalde": (29.2, -99.8), "Corpus Christi": (27.8, -97.6), "Abilene": (32.4, -99.7),
+                  "Austin": (30.3, -97.7)}},
+    "CISO": {
+        "wind": {"Tehachapi": (35.1, -118.3), "Altamont": (37.75, -121.65), "Solano": (38.15, -121.85),
+                 "San Gorgonio": (33.9, -116.6)},
+        "solar": {"Mojave": (35.0, -117.5), "Blythe": (33.6, -114.6), "Imperial Valley": (32.9, -115.6),
+                  "Westlands": (36.4, -120.1), "Bakersfield": (35.4, -119.0), "Riverside": (33.9, -117.4)}},
+    "MISO": {
+        "wind": {"Iowa": (42.4, -93.6), "SW Minnesota": (44.0, -96.0), "North Dakota": (46.9, -98.7),
+                 "Illinois": (40.5, -88.9), "Indiana": (40.6, -87.4), "Michigan Thumb": (43.7, -83.0)},
+        "solar": {"Illinois": (39.9, -88.0), "Indiana": (39.8, -86.2), "Minnesota": (45.0, -93.5),
+                  "Michigan": (42.6, -84.5), "Louisiana": (30.5, -91.5)}},
+    "PJM": {
+        "wind": {"Illinois": (41.0, -89.0), "Indiana": (40.6, -87.4), "NW Ohio": (41.1, -84.2),
+                 "Pennsylvania ridges": (40.0, -79.0), "Maryland West": (39.6, -79.1)},
+        "solar": {"Virginia": (37.0, -77.5), "New Jersey": (39.7, -74.8), "Illinois": (40.0, -88.5),
+                  "Ohio": (40.0, -83.0), "North Carolina": (36.2, -77.0)}},
+    "NYIS": {
+        "wind": {"Lowville": (43.8, -75.5), "Western NY": (42.7, -78.3), "Clinton County": (44.9, -73.8)}},
+    "ISNE": {
+        "wind": {"Aroostook": (46.5, -68.0), "Kibby": (45.4, -70.5), "Western MA": (42.5, -72.8)}},
+}
+
+
+def site_list():
+    """[(region, resource, site, lat, lon)] in a stable order."""
+    return [(r, res, n, v[0], v[1]) for r, d in SITES.items() for res, sites in d.items() for n, v in sites.items()]
