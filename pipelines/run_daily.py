@@ -39,31 +39,46 @@ def main():
     ap.add_argument("--no-score", action="store_true")
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--renewables-only", action="store_true", help="backfill the wind/solar ledger only")
+    ap.add_argument("--crops-only", action="store_true", help="backfill the crop-stress ledger only")
     args = ap.parse_args()
     now = datetime.now(timezone.utc)
     date = args.date or latest_available_date(now)
     src = "backfill" if args.backfill else "live"
-    if not args.renewables_only:
+    only = args.renewables_only or args.crops_only
+    if not only:
         df = forecast.run(date, 0, workers=args.workers)
         n = ledger.append(df, source=src)
         print(f"IFS {date} 00z: {len(df)} temperature/demand rows, {n} new in ledger")
-    rdf = forecast.run_renewables(date, 0, workers=args.workers)
-    rn = ledger.rappend(rdf, source=src)
-    print(f"IFS {date} 00z: {len(rdf)} wind/solar rows, {rn} new in ledger")
+    if not args.crops_only:
+        rdf = forecast.run_renewables(date, 0, workers=args.workers)
+        rn = ledger.rappend(rdf, source=src)
+        print(f"IFS {date} 00z: {len(rdf)} wind/solar rows, {rn} new in ledger")
+    if not args.renewables_only:
+        cdf = forecast.run_crops(date, 0, workers=args.workers)
+        cn = ledger.cappend(cdf, source=src)
+        print(f"IFS {date} 00z: {len(cdf)} crop-stress rows, {cn} new in ledger")
     if args.backfill:
         return
     if not args.no_score:
         print("scored", ledger.score(forecast.load_model()), "temperature/demand rows")
         print("scored", ledger.rscore(forecast.load_renewables()), "wind/solar rows")
-    payload = {"generated_utc": now.strftime("%Y-%m-%d %H:%M"), "issue_date": df["issue_date"].iloc[0],
-               "model": df["model"].iloc[0], "forecast": df.to_dict(orient="records"),
-               "verification": ledger.stats(),
-               "renewables": {"forecast": ledger.calibrated_forecast(rdf), "verification": ledger.rstats_calibrated(),
-                              "impact_model": {k: {x: v[x] for x in ("test_nmae_model_obs_weather", "test_nmae_normal_weather", "test_bias_pct", "n_test")}
-                                               for k, v in forecast.load_renewables()["models"].items()}},
-               "impact_model": {
-                   k: {x: v[x] for x in ("test_mape_model_obs_temp", "test_mape_climatology", "n_test")}
-                   for k, v in forecast.load_model()["regions"].items()}}
+        print("filled", ledger.cscore(), "crop-stress outcomes")
+    renew_model = forecast.load_renewables()["models"]
+    crop_model = forecast.load_crop_model()["models"]
+    payload = {
+        "generated_utc": now.strftime("%Y-%m-%d %H:%M"), "issue_date": df["issue_date"].iloc[0], "model": df["model"].iloc[0],
+        "forecast": df.to_dict(orient="records"), "verification": ledger.stats(),
+        "impact_model": {k: {x: v[x] for x in ("test_mape_model_obs_temp", "test_mape_climatology", "n_test")}
+                         for k, v in forecast.load_model()["regions"].items()},
+        "renewables": {
+            "forecast": ledger.calibrated_forecast(rdf), "verification": ledger.rstats_calibrated(),
+            "impact_model": {k: {x: v[x] for x in ("test_nmae_model_obs_weather", "test_nmae_normal_weather", "test_bias_pct", "n_test")}
+                             for k, v in renew_model.items()}},
+        "crops": {
+            "forecast": json.loads(cdf.to_json(orient="records")), "verification": ledger.cstats(),
+            "model": {k: {x: v[x] for x in ("loyo_mae_model", "loyo_mae_clim", "loyo_mae_zero", "loyo_corr", "n_weeks", "seasons",
+                                            "holdout_2026", "coef_std")} for k, v in crop_model.items()}},
+    }
     json.dump(payload, open(os.path.join(ROOT, "data", "latest.json"), "w"))
     print("wrote data/latest.json")
 

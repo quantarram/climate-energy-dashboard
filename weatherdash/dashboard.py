@@ -45,7 +45,7 @@ footer{padding:24px var(--pad) 40px;text-align:center;font-family:var(--mono);fo
 <main>
 <div class="banner"><b>Pilot: US electricity demand.</b> Each day the ECMWF 00z forecast is turned into regional temperature, degree days and
 electricity demand for six US grid regions, next to the demand that normal weather would imply. Every forecast is logged and scored against
-observed temperature and demand once they are known, with climatology as the baseline. Wind and solar generation for the same regions is below; crop stress is next.</div>
+observed temperature and demand once they are known, with climatology as the baseline. Wind and solar generation for the same regions, and crop stress for the US corn and soybean states, follow below.</div>
 <div class="cards" id="cards"></div>
 <section id="regions"><div class="s-title">Demand forecast vs normal, next 14 days</div>
 <div class="s-sub">Daily electricity demand, GWh per day. Solid: forecast weather. Dashed: demand at normal temperature for the date. Shaded: days beyond the point where the forecast has scored worse than normal weather.</div>
@@ -63,6 +63,15 @@ Solid: forecast weather. Dashed: generation under normal weather for the date. L
 <div class="charts"><div><div class="c-label">Wind: generation error by lead day (MAPE, %)</div><div id="rWind"></div></div>
 <div><div class="c-label">Solar: generation error by lead day (MAPE, %)</div><div id="rSolar"></div></div></div>
 <div class="table-wrap" id="rvtable"></div><div class="note" id="rnote"></div></section>
+<section id="crops"><div class="s-title">Crop stress: US corn and soybean states, next full weeks</div>
+<div class="s-sub" id="csub"></div>
+<div class="table-wrap" id="ctable"></div></section>
+<section id="cverify"><div class="s-title">How the crop-stress forecasts have scored</div><div class="s-sub" id="cvsub"></div>
+<div class="charts"><div><div class="c-label">Weekly heat-stress degree days (above 30 &deg;C): forecast error by lead (MAE)</div><div id="cKdd"></div></div>
+<div><div class="c-label">Weekly afternoon vapour-pressure deficit (kPa): forecast error by lead (MAE)</div><div id="cVpd"></div></div>
+<div><div class="c-label">Weekly rainfall (mm): forecast error by lead (MAE)</div><div id="cRain"></div></div>
+<div><div class="c-label">Weekly change in good+excellent rating (points): error vs baselines (MAE)</div><div id="cCond"></div></div></div>
+<div class="table-wrap" id="cvtable"></div><div class="note" id="cnote"></div></section>
 </main>
 <footer>Contains ECMWF open data (IFS), CC-BY-4.0 &middot; Observed temperature: ERA5 (Copernicus) via Open-Meteo, CC-BY-4.0 &middot; Demand: U.S. EIA Form 930<br>
 Research record, not a trading or operational tool.</footer>
@@ -188,6 +197,59 @@ document.getElementById('vnote').innerHTML =
     'Wind: ERA5 or forecast wind at 100 m at candidate generation areas, through a generic turbine curve, weighted by site with weights learned from EIA output; solar: surface solar radiation, same method; both with a linear capacity-growth term fitted on 2023 to 2025. ' +
     'Daily generation from a few weather points is a rough measure, wind especially: even with observed weather the wind error is large, so wind levels should be read as a guide to windier or calmer than normal, not as a megawatt forecast. ' +
     'Error is the mean absolute error of daily generation as a percentage of the series&rsquo; mean daily output; rows count from the first issue with a calibration factor known at issue time (28-day window, at least 7 days old).';
+})();
+
+// ---------------- crop stress ----------------
+(function () {
+  const C = D.crops; if (!C) return;
+  const CV = C.verification;
+  const iso = d => { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7)); const y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1)); return Math.ceil(((t - y0) / 86400000 + 1) / 7); };
+  const inSeason = C.forecast.some(r => r.dge_corn_fc !== null || r.dge_soybeans_fc !== null);
+  document.getElementById('csub').innerHTML = inSeason ?
+    'Weeks run Monday to Sunday, as in the USDA crop condition reports. Drivers are averages over each state&rsquo;s main growing areas. The rating change is the model&rsquo;s expected week-on-week move in the share of the crop rated good or excellent, for the ten-state average only: single-state weekly moves are mostly survey noise.' :
+    'Corn and soybean condition ratings run from about June to mid-September, so the condition outlook is switched off until the next season; the weather drivers below run all year. Scored results from the 2026 season are underneath.';
+  const wk = {}; C.forecast.forEach(r => (wk[r.week_ending] = wk[r.week_ending] || []).push(r));
+  const weeks = Object.keys(wk).sort();
+  let t = '';
+  const fmt = (v, d) => (v === null || v === undefined) ? '&ndash;' : v.toFixed(d);
+  const sgn = (v, d) => (v === null || v === undefined) ? '&ndash;' : (v >= 0 ? '+' : '') + v.toFixed(d);
+  weeks.forEach(we => {
+    t += '<div class="c-label" style="margin-top:14px">Week ending ' + we + '</div><table><tr><th>State</th><th>Heat degree-days</th><th>vs normal</th><th>Hot days (&gt;35 &deg;C)</th><th>Afternoon VPD, kPa</th><th>vs normal</th><th>Rain, mm</th><th>vs normal</th>' +
+      (inSeason ? '<th>Corn rating change</th><th>Soy rating change</th>' : '') + '</tr>';
+    const rows = wk[we].slice().sort((a, b) => (a.state === 'ALL' ? -1 : b.state === 'ALL' ? 1 : a.state.localeCompare(b.state)));
+    rows.forEach(r => {
+      const all = r.state === 'ALL';
+      t += '<tr' + (all ? ' style="font-weight:600;color:var(--text)"' : '') + '><td>' + (all ? 'Ten-state average' : r.state) + '</td><td>' + fmt(r.kdd_fc, 1) + '</td><td>' + sgn(r.kdd_fc - r.kdd_norm, 1) + '</td><td>' + fmt(r.hot_days_fc, 1) + '</td><td>' + fmt(r.vpd_fc, 2) + '</td><td>' + sgn(r.vpd_fc - r.vpd_norm, 2) + '</td><td>' + fmt(r.rain_fc, 0) + '</td><td>' + sgn(r.rain_fc - r.rain_norm, 0) + '</td>' +
+        (inSeason ? '<td>' + (all ? sgn(r.dge_corn_fc, 1) + ' pts' : '&ndash;') + '</td><td>' + (all ? sgn(r.dge_soybeans_fc, 1) + ' pts' : '&ndash;') + '</td>' : '') + '</tr>';
+    });
+    t += '</table>';
+  });
+  document.getElementById('ctable').innerHTML = t || '<div class="note">No full forecast week yet.</div>';
+  document.getElementById('cvsub').innerHTML = CV.n_weather ?
+    CV.n_weather.toLocaleString() + ' ten-state-average weeks scored on weather drivers and ' + CV.n_condition.toLocaleString() + ' on crop-condition change (issued ' + CV.first_issue + ' to ' + CV.last_issue + '; ' + CV.n_logged.toLocaleString() + ' logged). Baseline: the normal for that week of the year.' :
+    CV.n_logged.toLocaleString() + ' state-weeks logged, none scored yet.';
+  [['kdd', 'cKdd', ''], ['vpd', 'cVpd', ''], ['rain', 'cRain', '']].forEach(([f, id]) => {
+    const L = CV.weather.filter(r => r.feature === f); if (!L.length) return;
+    Plotly.newPlot(id, [
+      {x: L.map(r => r.lead), y: L.map(r => r.mae_fc), name: 'Forecast', mode: 'lines+markers', line: {color: '#5B8DBE', width: 2}},
+      {x: L.map(r => r.lead), y: L.map(r => r.mae_norm), name: 'Normal', mode: 'lines', line: {color: '#B5726A', width: 1.8, dash: 'dot'}}
+    ], Object.assign({}, BASE, {xaxis: {title: {text: 'lead to week end (days)', font: {size: 9}}, gridcolor: '#1B1E1B'}, yaxis: {gridcolor: '#1B1E1B', zeroline: false, rangemode: 'tozero'}}), CFG);
+  });
+  if (CV.condition.length) {
+    const x = CV.condition.map(r => r.crop === 'corn' ? 'Corn (n=' + r.n + ')' : 'Soybeans (n=' + r.n + ')');
+    Plotly.newPlot('cCond', [
+      {x: x, y: CV.condition.map(r => r.mae_fc), name: 'Forecast', type: 'bar', marker: {color: '#5B8DBE'}, text: CV.condition.map(r => r.mae_fc.toFixed(2)), textposition: 'outside'},
+      {x: x, y: CV.condition.map(r => r.mae_clim), name: 'Normal change', type: 'bar', marker: {color: '#B5726A'}, text: CV.condition.map(r => r.mae_clim.toFixed(2)), textposition: 'outside'},
+      {x: x, y: CV.condition.map(r => r.mae_zero), name: 'No change', type: 'bar', marker: {color: '#7A8F7A'}, text: CV.condition.map(r => r.mae_zero.toFixed(2)), textposition: 'outside'}
+    ], Object.assign({}, BASE, {barmode: 'group', xaxis: {type: 'category', tickfont: {size: 9}}, yaxis: {gridcolor: '#1B1E1B', zeroline: false, rangemode: 'tozero', ticksuffix: ' pts'}}), CFG);
+  }
+  let v = '<table><tr><th>Crop</th><th>Weeks scored (live)</th><th>Error, forecast-driven</th><th>Error, normal change</th><th>Error, no change</th><th>Correlation (forecast, actual)</th><th>Leave-one-year-out, 12 seasons: model / normal / no change (points)</th></tr>';
+  CV.condition.forEach(r => { const m = C.model[r.crop.toUpperCase()]; v += '<tr><td>' + (r.crop === 'corn' ? 'Corn' : 'Soybeans') + '</td><td>' + r.n.toLocaleString() + '</td><td>' + r.mae_fc.toFixed(2) + ' pts</td><td>' + r.mae_clim.toFixed(2) + ' pts</td><td>' + r.mae_zero.toFixed(2) + ' pts</td><td>' + r.corr.toFixed(2) + '</td><td>' + m.loyo_mae_model.toFixed(2) + ' / ' + m.loyo_mae_clim.toFixed(2) + ' / ' + m.loyo_mae_zero.toFixed(2) + ' (r = ' + m.loyo_corr.toFixed(2) + ', ' + m.n_weeks + ' weeks)' + '</td></tr>'; });
+  document.getElementById('cvtable').innerHTML = v + '</table>';
+  document.getElementById('cnote').innerHTML =
+    'Weather drivers come from the forecast at three points in each state&rsquo;s main growing areas (approximate locations): heat-stress degree days are daily maximum temperature above 30 &deg;C, summed over the week; vapour-pressure deficit is the 12:00 to 18:00 local mean; rainfall is the weekly total. ' +
+    'The condition model is a ridge regression of the ten-state average week-on-week change in the share rated good or excellent on those drivers and a seasonal term, for ISO weeks 22 to 38 (about June to mid-September). Its skill is estimated by leaving each season out in turn (2015 to 2026), in the table above; the live columns score each issued forecast. Forecast drivers are adjusted for a small measured offset against ERA5 (about 0.5 &deg;C on daily maximum, 0.1 kPa on VPD). ' +
+    'Weekly condition change is a noisy target (the ratings are survey-based), so the baselines to beat are the normal change for that week of the year and no change at all.';
 })();
 </script></body></html>"""
 

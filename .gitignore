@@ -5,3 +5,4 @@ data/backfill*.log
 .DS_Store
 docs/
 .cache/
+data/fit_crops.log

@@ -184,3 +184,138 @@ def run_renewables(date, cycle=0, workers=6):
     df.insert(0, "issue_date", issue.strftime("%Y-%m-%d"))
     df.insert(1, "model", f"IFS-{cycle:02d}z")
     return df
+
+
+# ---------------------------------------------------------------------------
+# Crop stress
+# ---------------------------------------------------------------------------
+from . import crops  # noqa: E402
+
+CROP_MODEL_PATH = os.path.join(ROOT, "data", "crops_model.json")
+CROP_FIELDS = {("sfc", "2t"), ("sfc", "2d"), ("sfc", "tp"), ("sfc", "mx2t3"), ("sfc", "mx2t6")}
+
+
+def load_crop_model():
+    return json.load(open(CROP_MODEL_PATH))
+
+
+def _crop_at_points(date, cycle, step, lats, lons):
+    buf = fetch.ifs_fetch(date, cycle, step, CROP_FIELDS)
+    out = {}
+    for h in grib.messages(buf):
+        v, m = grib.sample(h, lats, lons)
+        out[m["shortName"]] = v
+    return out
+
+
+def fetch_crop_drivers(date, cycle, points, workers=6):
+    """Per point: hourly 2 m temperature and dew point (deg C), hourly rain (mm), and window-maximum temperature,
+    indexed by hour-ending UTC time."""
+    lats, lons = [p[1] for p in points], [p[2] for p in points]
+    with ThreadPoolExecutor(workers) as ex:
+        rows = list(ex.map(lambda st: _crop_at_points(date, cycle, st, lats, lons), STEPS))
+    init = pd.Timestamp(f"{date} {cycle:02d}:00", tz="UTC")
+    steps = np.array(STEPS)
+    hours = np.arange(0, STEPS[-1] + 1)
+    idx = init + pd.to_timedelta(hours, unit="h")
+    t = np.array([r["2t"] for r in rows]) - 273.15
+    d = np.array([r["2d"] for r in rows]) - 273.15
+    t_h = pd.DataFrame({i: np.interp(hours, steps, t[:, i]) for i in range(len(points))}, index=idx)
+    d_h = pd.DataFrame({i: np.interp(hours, steps, d[:, i]) for i in range(len(points))}, index=idx)
+    tp = np.array([r["tp"] for r in rows]) * 1000.0  # accumulated mm since init
+    rain = np.zeros((len(hours), len(points)))
+    for k in range(1, len(steps)):
+        sel = (hours > steps[k - 1]) & (hours <= steps[k])
+        rain[sel] = np.maximum(tp[k] - tp[k - 1], 0.0) / (steps[k] - steps[k - 1])
+    rain_h = pd.DataFrame(rain, index=idx)
+    # window maxima: mx2t3 (3 h windows, steps <= 144) / mx2t6 (6 h windows after), labelled at the window end
+    tmax = np.full((len(steps), len(points)), np.nan)
+    for k, r in enumerate(rows):
+        if "mx2t3" in r:
+            tmax[k] = r["mx2t3"] - 273.15
+        elif "mx2t6" in r:
+            tmax[k] = r["mx2t6"] - 273.15
+    tmax_w = pd.DataFrame(tmax, index=init + pd.to_timedelta(steps, unit="h"))
+    return t_h, d_h, rain_h, tmax_w
+
+
+def crop_state_daily(t_h, d_h, rain_h, tmax_w, points):
+    """Per-state daily drivers from the forecast, same definitions as crops.daily_from_hourly (complete local days only)."""
+    per_state = {}
+    for st, (tz, pts) in crops.CROP_STATES.items():
+        pdaily = []
+        for i, (s, la, lo) in enumerate(points):
+            if s != st:
+                continue
+            h = pd.DataFrame({"t2m": t_h[i], "d2m": d_h[i], "precip": rain_h[i]}).iloc[1:].tz_convert(tz)  # drop h=0 (no preceding-hour rain)
+            vpd = crops.vpd_kpa(h["t2m"], h["d2m"])
+            g = h.groupby(h.index.date)
+            full = g["t2m"].count() == 24
+            pm = pd.Series(np.asarray(vpd), index=h.index)
+            pm = pm[(pm.index.hour >= 12) & (pm.index.hour < 18)].groupby(lambda x: x.date()).mean()
+            mx = tmax_w[i].dropna().tz_convert(tz)
+            tmax = mx.groupby(mx.index.date).max()
+            df = pd.DataFrame({"tmax": tmax - crops.TMAX_BIAS_C, "vpd_pm": np.maximum(pm - crops.VPD_BIAS_KPA, 0.0),
+                               "rain": g["precip"].sum()})[full].dropna()
+            df.index = pd.to_datetime(df.index)
+            pdaily.append(df)
+        common = pdaily[0].index
+        for p in pdaily[1:]:
+            common = common.intersection(p.index)
+        per_state[st] = crops.state_daily([p.loc[common] for p in pdaily])
+    return per_state
+
+
+def _predict_dge(cmodel, crop, feats, iso):
+    m = cmodel["models"][crop]
+    if not (crops.SEASON_WEEKS[0] <= iso <= crops.SEASON_WEEKS[1]):
+        return np.nan, np.nan
+    x = np.array([[feats[f] for f in crops.FEATURES] + [(iso - 30) / 8.0]])
+    z = (x - np.array(m["mu"])) / np.array(m["sd"])
+    return round(float(m["beta"][0] + (z @ np.array(m["beta"][1:]))[0]), 2), m["clim_dge_by_week"].get(str(iso), np.nan)
+
+
+def crop_impact(per_state_daily, cmodel, issue_date):
+    """Per state and week: forecast weather drivers vs normal. Plus an 'ALL' row (ten-state average) carrying the
+    predicted week-on-week change in good+excellent condition for corn and soybeans, in season only."""
+    rows = []
+    by_week = {}
+    for st, daily in per_state_daily.items():
+        w = crops.weekly(daily)
+        for we, r in w.iterrows():
+            if (we - pd.Timedelta(days=6)).date() < issue_date:
+                continue
+            iso = int(we.isocalendar().week)
+            row = {"state": st, "week_ending": we.strftime("%Y-%m-%d"), "lead_days": int((we.date() - issue_date).days)}
+            for f in crops.FEATURES:
+                row[f"{f}_fc"] = round(float(r[f]), 2)
+                row[f"{f}_norm"] = cmodel["normals"][st][f].get(str(iso), np.nan)
+            for crop in crops.CROPS:
+                row[f"dge_{crop.lower()}_fc"] = np.nan
+                row[f"dge_{crop.lower()}_clim"] = np.nan
+            rows.append(row)
+            by_week.setdefault(we, []).append(row)
+    for we, rs in by_week.items():
+        if len(rs) < len(crops.CROP_STATES):
+            continue
+        iso = int(we.isocalendar().week)
+        row = {"state": "ALL", "week_ending": we.strftime("%Y-%m-%d"), "lead_days": rs[0]["lead_days"]}
+        for f in crops.FEATURES:
+            row[f"{f}_fc"] = round(float(np.mean([r[f"{f}_fc"] for r in rs])), 2)
+            row[f"{f}_norm"] = round(float(np.nanmean([r[f"{f}_norm"] for r in rs])), 3)
+        feats = {f: row[f"{f}_fc"] for f in crops.FEATURES}
+        for crop in crops.CROPS:
+            row[f"dge_{crop.lower()}_fc"], row[f"dge_{crop.lower()}_clim"] = _predict_dge(cmodel, crop, feats, iso)
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def run_crops(date, cycle=0, workers=6):
+    points = crops.crop_points()
+    t_h, d_h, rain_h, tmax_w = fetch_crop_drivers(date, cycle, points, workers)
+    per_state = crop_state_daily(t_h, d_h, rain_h, tmax_w, points)
+    issue = datetime.strptime(date, "%Y%m%d").date()
+    df = crop_impact(per_state, load_crop_model(), issue)
+    df.insert(0, "issue_date", issue.strftime("%Y-%m-%d"))
+    df.insert(1, "model", f"IFS-{cycle:02d}z")
+    return df

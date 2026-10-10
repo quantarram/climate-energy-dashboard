@@ -305,3 +305,157 @@ def rstats_calibrated(led=None):
     for (reg, kind), g in res.groupby(["region", "resource"]):
         out["by_series"].append(dict(region=reg, resource=kind, **block(g)))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Crop-stress ledger: weekly (Mon-Sun) state drivers and the predicted change in NASS good+excellent condition
+# ---------------------------------------------------------------------------
+CPATH = os.path.join(ROOT, "data", "ledger_crops.csv")
+CKEY = ["issue_date", "model", "state", "week_ending"]
+FEATS = ["kdd", "hot_days", "vpd", "rain"]
+CFC = (["issue_date", "model", "state", "week_ending", "lead_days"] + [f"{f}_fc" for f in FEATS] + [f"{f}_norm" for f in FEATS] +
+       ["dge_corn_fc", "dge_corn_clim", "dge_soybeans_fc", "dge_soybeans_clim"])
+COUT = [f"{f}_obs" for f in FEATS] + ["dge_corn_obs", "dge_soybeans_obs", "status", "source"]
+CCOLS = CFC + COUT
+NASS_PATH = os.path.join(ROOT, "data", "nass_condition.csv")
+
+
+def cload():
+    if not os.path.exists(CPATH):
+        return pd.DataFrame(columns=CCOLS)
+    return pd.read_csv(CPATH, dtype={"issue_date": str, "week_ending": str}).reindex(columns=CCOLS)
+
+
+def csave(df):
+    df.sort_values(["issue_date", "model", "state", "week_ending"]).to_csv(CPATH, index=False)
+
+
+def cappend(new, source="live"):
+    led = cload()
+    new = new.copy()
+    new["status"], new["source"] = "PENDING", source
+    for c in COUT:
+        if c not in new:
+            new[c] = np.nan
+    new = new.reindex(columns=CCOLS)
+    have = set(map(tuple, led[CKEY].astype(str).values))
+    new = new[[tuple(map(str, k)) not in have for k in new[CKEY].values]]
+    if len(new):
+        csave(pd.concat([led, new], ignore_index=True) if len(led) else new)
+    return len(new)
+
+
+def _nass_dge():
+    """{(crop, state, week_ending str): week-on-week change in good+excellent} from the NASS table on disk."""
+    if not os.path.exists(NASS_PATH):
+        return {}
+    n = pd.read_csv(NASS_PATH)
+    n["week_ending"] = pd.to_datetime(n["week_ending"])
+    n["ge"] = n["good"] + n["excellent"]
+    out = {}
+    for (crop, st), g in n[n["commodity"].isin(["CORN", "SOYBEANS"])].groupby(["commodity", "state"]):
+        s = g.sort_values("week_ending").set_index("week_ending")["ge"]
+        d = s.diff()[s.index.to_series().diff().dt.days == 7]
+        for we, v in d.items():
+            out[(crop, st, we.strftime("%Y-%m-%d"))] = float(v)
+    from . import crops
+    for crop in ("CORN", "SOYBEANS"):
+        by_week = {}
+        for (c, st, we), v in out.items():
+            if c == crop and st in crops.CROP_STATES:
+                by_week.setdefault(we, []).append(v)
+        for we, vs in by_week.items():
+            if len(vs) >= 8:
+                out[(crop, "ALL", we)] = float(np.mean(vs))
+    return out
+
+
+def cscore(today=None, refresh_nass=True):
+    """Fill ERA5-observed weekly drivers (6 days after week end) and NASS condition changes (when published)."""
+    from . import crops, nass
+    led = cload()
+    today = pd.Timestamp(today) if today is not None else pd.Timestamp.utcnow().tz_localize(None).normalize()
+    we = pd.to_datetime(led["week_ending"])
+    filled = 0
+    # 1. observed weather
+    need = led[led["kdd_obs"].isna() & (we <= today - pd.Timedelta(days=ERA5_LAG_DAYS))]
+    if len(need):
+        start = (pd.to_datetime(need["week_ending"]).min() - pd.Timedelta(days=6)).strftime("%Y-%m-%d")
+        end = pd.to_datetime(need["week_ending"]).max().strftime("%Y-%m-%d")
+        wk = {}
+        for st, (tz, pts) in crops.CROP_STATES.items():
+            pdaily = [crops.daily_from_hourly(truth.point_hourly(la, lo, tz, start, end), tz) for la, lo in pts]
+            common = pdaily[0].index
+            for p in pdaily[1:]:
+                common = common.intersection(p.index)
+            wk[st] = crops.weekly(crops.state_daily([p.loc[common] for p in pdaily]))
+        for idx, r in need.iterrows():
+            t = pd.Timestamp(r["week_ending"])
+            if r["state"] == "ALL":
+                ws = [w for w in wk.values() if t in w.index]
+                if len(ws) < len(wk):
+                    continue
+                vals = {f: float(np.mean([w.loc[t, f] for w in ws])) for f in FEATS}
+            else:
+                w = wk.get(r["state"])
+                if w is None or t not in w.index:
+                    continue
+                vals = {f: float(w.loc[t, f]) for f in FEATS}
+            for f in FEATS:
+                led.loc[idx, f"{f}_obs"] = round(vals[f], 2)
+            led.loc[idx, "status"] = "RESOLVED"
+            filled += 1
+    # 2. NASS condition changes (in-season rows only: the forecast column is empty otherwise)
+    def due_nass():
+        d = led[(led[["dge_corn_obs", "dge_soybeans_obs"]].isna().any(axis=1)) & led[["dge_corn_fc", "dge_soybeans_fc"]].notna().any(axis=1)
+                & (pd.to_datetime(led["week_ending"]) <= today - pd.Timedelta(days=2))]
+        return d
+    pend = due_nass()
+    dge = _nass_dge()
+    missing = [r for r in pend.itertuples() if (("CORN", r.state, r.week_ending) not in dge) and (("SOYBEANS", r.state, r.week_ending) not in dge)]
+    if refresh_nass and missing:
+        nass.stream_condition().to_csv(NASS_PATH, index=False)
+        dge = _nass_dge()
+    for idx, r in pend.iterrows():
+        for crop, col in (("CORN", "dge_corn_obs"), ("SOYBEANS", "dge_soybeans_obs")):
+            v = dge.get((crop, r["state"], r["week_ending"]))
+            if v is not None and pd.isna(led.loc[idx, col]):
+                led.loc[idx, col] = v
+                filled += 1
+    if filled:
+        csave(led)
+    return filled
+
+
+def cstats(led=None):
+    led = cload() if led is None else led
+    out = {"n_logged": int(len(led)), "weather": [], "condition": [], "n_weather": 0, "n_condition": 0}
+    res = led[(led["status"] == "RESOLVED") & (led["state"] == "ALL")].copy()  # ten-state average
+    if res.empty:
+        return out
+    for f in FEATS:
+        for c in (f"{f}_fc", f"{f}_norm", f"{f}_obs"):
+            res[c] = res[c].astype(float)
+    out["n_weather"] = int(len(res))
+    out["first_issue"], out["last_issue"] = str(res["issue_date"].min()), str(res["issue_date"].max())
+    res["lead_bucket"] = ((res["lead_days"].astype(int) - 1) // 3) * 3 + 2  # 3-day buckets, labelled by the middle day
+    for f in FEATS:
+        for lead, g in res.groupby("lead_bucket"):
+            if len(g) >= 10:
+                out["weather"].append({"feature": f, "lead": int(lead), "n": int(len(g)),
+                                       "mae_fc": round(float((g[f"{f}_fc"] - g[f"{f}_obs"]).abs().mean()), 3),
+                                       "mae_norm": round(float((g[f"{f}_norm"] - g[f"{f}_obs"]).abs().mean()), 3)})
+    for crop in ("corn", "soybeans"):
+        c = res[res["state"] == "ALL"].dropna(subset=[f"dge_{crop}_fc", f"dge_{crop}_obs"]).copy()
+        if c.empty:
+            continue
+        for k in ("fc", "clim", "obs"):
+            c[f"dge_{crop}_{k}"] = c[f"dge_{crop}_{k}"].astype(float)
+        e = lambda col: (c[col] - c[f"dge_{crop}_obs"]).abs()
+        out["condition"].append({"crop": crop, "n": int(len(c)), "weeks": int(c["week_ending"].nunique()),
+                                 "mae_fc": round(float(e(f"dge_{crop}_fc").mean()), 3),
+                                 "mae_clim": round(float(e(f"dge_{crop}_clim").mean()), 3),
+                                 "mae_zero": round(float(c[f"dge_{crop}_obs"].abs().mean()), 3),
+                                 "corr": round(float(np.corrcoef(c[f"dge_{crop}_fc"], c[f"dge_{crop}_obs"])[0, 1]), 3)})
+        out["n_condition"] += int(len(c))
+    return out
