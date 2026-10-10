@@ -1,4 +1,4 @@
-# Weather to Energy Dashboard
+# Weather Impacts Dashboard
 
 A daily-updated, self-scoring dashboard of how forecast weather translates into electricity demand and
 wind and solar generation (pilot: six US grid regions), plus a crop-stress layer for the US corn and soybean states.
