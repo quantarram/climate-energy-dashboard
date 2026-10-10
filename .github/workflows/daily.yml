@@ -1,0 +1,44 @@
+name: Daily weather-to-energy update
+
+# ECMWF's 00z open-data cycle is on the mirrors by ~07:35 UTC; run at 08:30 UTC (16:30 SGT).
+# Forecast fields are read straight into memory and discarded; only the small ledger/payload files
+# are committed, and the dashboard is force-pushed to gh-pages so its history never grows.
+on:
+  schedule:
+    - cron: "30 8 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Fetch forecast, log it, score what has matured
+        run: python pipelines/run_daily.py
+      - name: Build dashboard
+        run: python -m weatherdash.dashboard
+      - name: Commit ledger and payload
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/ledger_temp_demand.csv data/latest.json
+          if git diff --cached --quiet; then echo "No changes"; else
+            git commit -m "Daily update $(date -u +%Y-%m-%d) [automated]"
+            git pull --rebase origin main
+            git push
+          fi
+      - name: Publish dashboard (force-pushed, no history)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
+          force_orphan: true
