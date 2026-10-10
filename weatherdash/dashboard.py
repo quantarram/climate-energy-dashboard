@@ -78,9 +78,11 @@ Research record, not a trading or operational tool.</footer>
 <script>
 const D = __DATA__;
 const LABEL = {ERCO:'ERCOT (Texas)',PJM:'PJM (Mid-Atlantic / Midwest)',CISO:'CAISO (California)',NYIS:'NYISO (New York)',ISNE:'ISO-NE (New England)',MISO:'MISO (Midcontinent)'};
-const BASE = {paper_bgcolor:'transparent',plot_bgcolor:'transparent',height:230,margin:{l:48,r:10,t:6,b:40},
-  font:{family:'IBM Plex Mono',size:10,color:'#7A8F7A'},xaxis:{gridcolor:'#1B1E1B',tickfont:{size:9}},yaxis:{gridcolor:'#1B1E1B',zeroline:false},
-  legend:{orientation:'h',y:-0.28,font:{size:9}}};
+const BASE = {paper_bgcolor:'transparent',plot_bgcolor:'transparent',height:250,margin:{l:52,r:12,t:30,b:34},
+  font:{family:'IBM Plex Mono',size:10,color:'#7A8F7A'},
+  xaxis:{gridcolor:'#1B1E1B',tickfont:{size:9},tickformat:'%b %d',nticks:6,automargin:true},
+  yaxis:{gridcolor:'#1B1E1B',zeroline:false,automargin:true},
+  legend:{orientation:'h',x:0,xanchor:'left',y:1.14,yanchor:'bottom',font:{size:9},entrywidth:105,entrywidthmode:'pixels',itemwidth:30}};
 const CFG = {displayModeBar:false,responsive:true};
 document.getElementById('hmeta').innerHTML = 'Forecast ' + D.model + ' issued ' + D.issue_date + '<br>Updated ' + D.generated_utc + ' UTC';
 const byReg = {}; D.forecast.forEach(r => (byReg[r.region] = byReg[r.region] || []).push(r));
@@ -111,7 +113,7 @@ Object.keys(byReg).forEach(reg => {
   Plotly.newPlot('ch_' + reg, [
     {x: rows.map(r => r.valid_date), y: rows.map(r => r.demand_fc_mwh / 1000), name: 'Forecast', mode: 'lines+markers', line: {color: '#5B8DBE', width: 2}, marker: {size: 4}},
     {x: rows.map(r => r.valid_date), y: rows.map(r => r.demand_clim_mwh / 1000), name: 'Climatology', mode: 'lines', line: {color: '#7A8F7A', width: 1.5, dash: 'dot'}}
-  ], Object.assign({}, BASE, {yaxis: {gridcolor: '#1B1E1B', zeroline: false, ticksuffix: ' GWh'},
+  ], Object.assign({}, BASE, {showlegend: false, margin: {l: 56, r: 12, t: 10, b: 34}, yaxis: {gridcolor: '#1B1E1B', zeroline: false, ticksuffix: ' GWh', automargin: true},
     shapes: (SKILL !== null && rows.some(r => r.lead_days > SKILL)) ? [{type: 'rect', xref: 'x', yref: 'paper',
       x0: rows.find(r => r.lead_days === SKILL + 1).valid_date, x1: rows[rows.length - 1].valid_date, y0: 0, y1: 1,
       fillcolor: 'rgba(200,168,74,0.07)', line: {width: 0}}] : []}), CFG);
@@ -172,7 +174,7 @@ document.getElementById('vnote').innerHTML =
     Plotly.newPlot('rc_' + reg + '_' + kind, [
       {x: rows.map(r => r.valid_date), y: rows.map(r => r.gen_fc_mwh / 1000), name: 'Forecast', mode: 'lines+markers', line: {color: kind === 'wind' ? '#5B8DBE' : '#C8A84A', width: 2}, marker: {size: 4}},
       {x: rows.map(r => r.valid_date), y: rows.map(r => r.gen_clim_mwh / 1000), name: 'Climatology', mode: 'lines', line: {color: '#7A8F7A', width: 1.5, dash: 'dot'}}
-    ], Object.assign({}, BASE, {yaxis: {gridcolor: '#1B1E1B', zeroline: false, ticksuffix: ' GWh', rangemode: 'tozero'},
+    ], Object.assign({}, BASE, {showlegend: false, margin: {l: 56, r: 12, t: 10, b: 34}, yaxis: {gridcolor: '#1B1E1B', zeroline: false, ticksuffix: ' GWh', rangemode: 'tozero', automargin: true},
       shapes: (cut !== null && rows.some(r => r.lead_days > cut)) ? [{type: 'rect', xref: 'x', yref: 'paper',
         x0: rows.find(r => r.lead_days === cut + 1).valid_date, x1: rows[rows.length - 1].valid_date, y0: 0, y1: 1,
         fillcolor: 'rgba(200,168,74,0.07)', line: {width: 0}}] : []}), CFG);
