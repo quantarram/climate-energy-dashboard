@@ -1,4 +1,4 @@
-issue_date,model,region,valid_date,lead_days,t_fc_c,t_normal_c,hdd_fc,cdd_fc,demand_fc_mwh,demand_normal_mwh,status,t_obs_c,demand_obs_mwh,demand_from_obs_t_mwh,source
+issue_date,model,region,valid_date,lead_days,t_fc_c,t_clim_c,hdd_fc,cdd_fc,demand_fc_mwh,demand_clim_mwh,status,t_obs_c,demand_obs_mwh,demand_from_obs_t_mwh,source
 2026-06-01,IFS-00z,CISO,2026-06-01,0,19.57,18.33,0.0,2.2,653443.0,599081.0,RESOLVED,19.5,641367.0,650811.0,backfill
 2026-06-01,IFS-00z,CISO,2026-06-02,1,18.8,18.45,0.0,0.8,629643.0,614121.0,RESOLVED,18.59,648583.0,620366.0,backfill
 2026-06-01,IFS-00z,CISO,2026-06-03,2,19.54,18.59,0.0,2.2,664248.0,622798.0,RESOLVED,19.73,667673.0,672285.0,backfill

@@ -5,7 +5,7 @@ History: ERA5 2015 onward at each state's points, NASS weekly condition 2015-202
 on 2026. Weekly drivers (Mon-Sun): heat-stress degree days above 30 C, hot days (>35 C), afternoon VPD, rainfall.
 Pooled across states, per crop, ridge regression of the week-on-week change in good+excellent on the drivers
 (standardised) plus a seasonal term. Baselines on the holdout: no change, and the mean change by week of year.
-Stores coefficients, weekly-driver normals (by ISO week) and holdout scores.
+Stores coefficients, weekly-driver climatology (by ISO week, 2015-2025, 11 seasons) and holdout scores.
 """
 import json
 import os
@@ -61,12 +61,13 @@ def main():
     wk = state_weekly_history(end)
     nass = pd.read_csv(NASS)
     nass["week_ending"] = pd.to_datetime(nass["week_ending"])
-    out = {"train_through": TRAIN_END, "features": crops.FEATURES + ["season"], "models": {}, "normals": {}}
-    # weekly driver normals by ISO week (2015-2025), per state
+    out = {"train_through": TRAIN_END, "features": crops.FEATURES + ["season"], "models": {}, "climatology_drivers": {},
+           "climatology": {"years": "2015-2025", "n_years": 11, "what": "weekly heat/VPD/rain drivers by ISO week, and the average week-on-week rating change by ISO week"}}
+    # weekly driver climatology by ISO week (2015-2025, 11 seasons), per state
     for st, w in wk.items():
         tr = w[w.index.year <= TRAIN_END]
         iso = tr.index.isocalendar().week.astype(int)
-        out["normals"][st] = {f: {int(k): round(float(v), 3) for k, v in tr[f].groupby(iso.values).mean().items()}
+        out["climatology_drivers"][st] = {f: {int(k): round(float(v), 3) for k, v in tr[f].groupby(iso.values).mean().items()}
                               for f in crops.FEATURES}
     for crop in crops.CROPS:
         n = nass[(nass.commodity == crop) & (nass.state.isin(crops.CROP_STATES))].copy()

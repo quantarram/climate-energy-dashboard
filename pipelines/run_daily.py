@@ -1,7 +1,7 @@
 """
 Daily run (after the ECMWF 00z open-data cycle is published, ~07:35 UTC):
   1. fetch the IFS 2 m temperature forecast for the pilot load centres (in memory, nothing raw is stored)
-  2. regional temperature -> degree days -> demand forecast vs normal
+  2. regional temperature -> degree days -> demand forecast vs climatology
   3. append to the forecast ledger, score whatever has matured, write the dashboard payload
 
   python pipelines/run_daily.py               # latest 00z cycle
@@ -70,9 +70,11 @@ def main():
         "forecast": df.to_dict(orient="records"), "verification": ledger.stats(),
         "impact_model": {k: {x: v[x] for x in ("test_mape_model_obs_temp", "test_mape_climatology", "n_test")}
                          for k, v in forecast.load_model()["regions"].items()},
+        "climatology": {"demand": forecast.load_model()["climatology"], "renewables": forecast.load_renewables()["climatology"],
+                        "crops": forecast.load_crop_model()["climatology"]},
         "renewables": {
             "forecast": ledger.calibrated_forecast(rdf), "verification": ledger.rstats_calibrated(),
-            "impact_model": {k: {x: v[x] for x in ("test_nmae_model_obs_weather", "test_nmae_normal_weather", "test_bias_pct", "n_test")}
+            "impact_model": {k: {x: v[x] for x in ("test_nmae_model_obs_weather", "test_nmae_climatology", "test_bias_pct", "n_test")}
                              for k, v in renew_model.items()}},
         "crops": {
             "forecast": json.loads(cdf.to_json(orient="records")), "verification": ledger.cstats(),

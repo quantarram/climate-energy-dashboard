@@ -1,4 +1,4 @@
-issue_date,model,state,week_ending,lead_days,kdd_fc,hot_days_fc,vpd_fc,rain_fc,kdd_norm,hot_days_norm,vpd_norm,rain_norm,dge_corn_fc,dge_corn_clim,dge_soybeans_fc,dge_soybeans_clim,kdd_obs,hot_days_obs,vpd_obs,rain_obs,dge_corn_obs,dge_soybeans_obs,status,source
+issue_date,model,state,week_ending,lead_days,kdd_fc,hot_days_fc,vpd_fc,rain_fc,kdd_clim,hot_days_clim,vpd_clim,rain_clim,dge_corn_fc,dge_corn_clim,dge_soybeans_fc,dge_soybeans_clim,kdd_obs,hot_days_obs,vpd_obs,rain_obs,dge_corn_obs,dge_soybeans_obs,status,source
 2026-06-01,IFS-00z,ALL,2026-06-07,6,0.26,0.0,1.32,32.14,4.601,0.161,1.832,17.507,0.3,-0.74,0.2,-0.6,1.69,0.03,1.78,25.34,0.7,0.3,RESOLVED,backfill
 2026-06-01,IFS-00z,ALL,2026-06-14,13,1.62,0.03,1.0,39.79,7.583,0.418,1.974,23.573,0.84,-1.327,0.83,-1.33,4.39,0.1,1.61,36.2,2.0,1.4,RESOLVED,backfill
 2026-06-01,IFS-00z,IA,2026-06-07,6,0.57,0.0,1.31,48.81,4.682,0.152,1.841,13.785,,,,,0.77,0.0,1.83,46.57,,,RESOLVED,backfill

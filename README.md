@@ -8,15 +8,18 @@ Every day (08:30 UTC, after the ECMWF 00z open-data cycle is published) a GitHub
 1. reads the **IFS 2 m temperature, 100 m wind and surface solar radiation forecasts** for each region's load centres and generation areas straight from ECMWF's
    open-data mirror, **in memory** (index files give byte ranges, so only the needed fields are fetched;
    nothing raw is stored),
-2. turns it into population-weighted regional daily temperature, heating/cooling degree days and a
-   **demand forecast next to the demand that normal weather would imply**,
+2. turns them into population-weighted regional temperature and heating/cooling degree days (a **demand forecast
+   next to the demand that climatology would imply**: the demand at the average temperature for that calendar date
+   over 1996-2025, 30 years) and into **wind and solar generation forecasts** through learned weather-to-output
+   maps, each next to the generation climatology would give (average wind and sunshine for that date over
+   2015-2025, 11 years),
 3. turns 2 m temperature, dew point, rainfall and daily maximum temperature at ten US crop states into weekly
-   **heat-stress, vapour-pressure-deficit and rainfall drivers** (vs normal) and an expected change in the USDA
+   **heat-stress, vapour-pressure-deficit and rainfall drivers** (vs climatology: 2015-2025 average for that week of the year, 11 seasons) and an expected change in the USDA
    good+excellent corn/soybean rating,
 4. appends the forecasts to small **ledgers** (`data/ledger_temp_demand.csv`, `data/ledger_wind_solar.csv`, `data/ledger_crops.csv`),
 5. **scores** every forecast whose day has passed against ERA5 weather, EIA-930 demand and wind/solar
-   generation, and USDA NASS weekly crop condition (streamed from the Quick Stats bulk file, no key), with normal
-   weather as the baseline,
+   generation, and USDA NASS weekly crop condition (streamed from the Quick Stats bulk file, no key), with climatology as
+   the baseline,
 6. publishes the dashboard (force-pushed to `gh-pages`, so history does not grow).
 
 ## Data and licences
@@ -31,7 +34,7 @@ weatherdash/fetch.py      byte-range fetch from the ECMWF mirrors (retry + mirro
 weatherdash/grib.py       in-memory GRIB decode + bilinear point sampling
 weatherdash/regions.py    pilot regions, load centres, approximate population weights
 weatherdash/demand.py     temperature -> daily demand model (degree days, day of week, trend)
-weatherdash/forecast.py   forecast -> regional temperature, degree days, demand, wind and solar vs normal
+weatherdash/forecast.py   forecast -> regional temperature, degree days, demand, wind and solar vs climatology
 weatherdash/renewables.py learned wind power curve (hat basis) and solar map, capacity-growth term
 weatherdash/crops.py      state points, weekly heat/VPD/rain drivers
 weatherdash/nass.py       USDA NASS weekly condition from the Quick Stats bulk file

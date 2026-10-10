@@ -9,8 +9,8 @@ from . import demand, eia, regions, truth
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PATH = os.path.join(ROOT, "data", "ledger_temp_demand.csv")
 KEY = ["issue_date", "model", "region", "valid_date"]
-FC_COLS = ["issue_date", "model", "region", "valid_date", "lead_days", "t_fc_c", "t_normal_c",
-           "hdd_fc", "cdd_fc", "demand_fc_mwh", "demand_normal_mwh"]
+FC_COLS = ["issue_date", "model", "region", "valid_date", "lead_days", "t_fc_c", "t_clim_c",
+           "hdd_fc", "cdd_fc", "demand_fc_mwh", "demand_clim_mwh"]
 OUT_COLS = ["status", "t_obs_c", "demand_obs_mwh", "demand_from_obs_t_mwh", "source"]
 COLS = FC_COLS + OUT_COLS
 ERA5_LAG_DAYS = 6  # ERA5 reaches the archive API about 5 days behind
@@ -103,12 +103,12 @@ def stats(led=None):
     res = led[led["status"] == "RESOLVED"].copy()
     if res.empty:
         return {"n_logged": int(len(led)), "n_resolved": 0, "by_lead": [], "by_region": []}
-    for c in ("t_fc_c", "t_normal_c", "t_obs_c", "demand_fc_mwh", "demand_normal_mwh", "demand_obs_mwh",
+    for c in ("t_fc_c", "t_clim_c", "t_obs_c", "demand_fc_mwh", "demand_clim_mwh", "demand_obs_mwh",
               "demand_from_obs_t_mwh"):
         res[c] = res[c].astype(float)
     res["t_err_fc"] = (res["t_fc_c"] - res["t_obs_c"]).abs()
-    res["t_err_clim"] = (res["t_normal_c"] - res["t_obs_c"]).abs()
-    for k, col in (("fc", "demand_fc_mwh"), ("clim", "demand_normal_mwh"), ("oracle", "demand_from_obs_t_mwh")):
+    res["t_err_clim"] = (res["t_clim_c"] - res["t_obs_c"]).abs()
+    for k, col in (("fc", "demand_fc_mwh"), ("clim", "demand_clim_mwh"), ("oracle", "demand_from_obs_t_mwh")):
         res[f"ape_{k}"] = (res[col] - res["demand_obs_mwh"]).abs() / res["demand_obs_mwh"] * 100
 
     def block(g):
@@ -128,7 +128,7 @@ def stats(led=None):
 # ---------------------------------------------------------------------------
 RPATH = os.path.join(ROOT, "data", "ledger_wind_solar.csv")
 RKEY = ["issue_date", "model", "region", "resource", "valid_date"]
-RFC = ["issue_date", "model", "region", "resource", "valid_date", "lead_days", "gen_fc_mwh", "gen_normal_mwh"]
+RFC = ["issue_date", "model", "region", "resource", "valid_date", "lead_days", "gen_fc_mwh", "gen_clim_mwh"]
 ROUT = ["status", "gen_obs_mwh", "gen_from_obs_weather_mwh", "source"]
 RCOLS = RFC + ROUT
 
@@ -203,10 +203,10 @@ def rstats(led=None):
     out = {"n_logged": int(len(led)), "n_resolved": int(len(res)), "by_lead": [], "by_series": []}
     if res.empty:
         return out
-    for c in ("gen_fc_mwh", "gen_normal_mwh", "gen_obs_mwh", "gen_from_obs_weather_mwh"):
+    for c in ("gen_fc_mwh", "gen_clim_mwh", "gen_obs_mwh", "gen_from_obs_weather_mwh"):
         res[c] = res[c].astype(float)
     den = np.maximum(res["gen_obs_mwh"], 1.0)
-    for k, col in (("fc", "gen_fc_mwh"), ("clim", "gen_normal_mwh"), ("oracle", "gen_from_obs_weather_mwh")):
+    for k, col in (("fc", "gen_fc_mwh"), ("clim", "gen_clim_mwh"), ("oracle", "gen_from_obs_weather_mwh")):
         res[f"ape_{k}"] = (res[col] - res["gen_obs_mwh"]).abs() / den * 100
 
     def block(g):
@@ -225,12 +225,12 @@ def rstats(led=None):
 # Level calibration for wind/solar. Weather -> generation maps drift as capacity is added, and a 0.25 degree
 # forecast grid can read systematically lower or higher than the reanalysis the map was fitted on (mountain-pass
 # wind sites especially). Each series is therefore rescaled to the last 28 days of observed output, separately for
-# the forecast, the normal-weather baseline and the observed-weather model, using only days already known at
+# the forecast, the climatology baseline and the observed-weather model, using only days already known at
 # issue time (valid date at least 7 days old). Correlation with observed output is untouched; only the level moves.
 # ---------------------------------------------------------------------------
 CAL_WINDOW_DAYS = 28
 CAL_LAG_DAYS = 7
-_SRC = {"fc": "gen_fc_mwh", "clim": "gen_normal_mwh", "oracle": "gen_from_obs_weather_mwh"}
+_SRC = {"fc": "gen_fc_mwh", "clim": "gen_clim_mwh", "oracle": "gen_from_obs_weather_mwh"}
 
 
 def _ratio_tables(res):
@@ -263,7 +263,7 @@ def calibrated_forecast(rdf, led=None):
             last = t.dropna().iloc[-1]
             f_fc, f_cl = float(last["fc"]), float(last["clim"])
         rows.append(dict(r, factor=round(f_fc, 3), gen_fc_mwh=round(r["gen_fc_mwh"] * f_fc, 0),
-                         gen_normal_mwh=round(r["gen_normal_mwh"] * f_cl, 0)))
+                         gen_clim_mwh=round(r["gen_clim_mwh"] * f_cl, 0)))
     return rows
 
 
@@ -313,7 +313,7 @@ def rstats_calibrated(led=None):
 CPATH = os.path.join(ROOT, "data", "ledger_crops.csv")
 CKEY = ["issue_date", "model", "state", "week_ending"]
 FEATS = ["kdd", "hot_days", "vpd", "rain"]
-CFC = (["issue_date", "model", "state", "week_ending", "lead_days"] + [f"{f}_fc" for f in FEATS] + [f"{f}_norm" for f in FEATS] +
+CFC = (["issue_date", "model", "state", "week_ending", "lead_days"] + [f"{f}_fc" for f in FEATS] + [f"{f}_clim" for f in FEATS] +
        ["dge_corn_fc", "dge_corn_clim", "dge_soybeans_fc", "dge_soybeans_clim"])
 COUT = [f"{f}_obs" for f in FEATS] + ["dge_corn_obs", "dge_soybeans_obs", "status", "source"]
 CCOLS = CFC + COUT
@@ -434,7 +434,7 @@ def cstats(led=None):
     if res.empty:
         return out
     for f in FEATS:
-        for c in (f"{f}_fc", f"{f}_norm", f"{f}_obs"):
+        for c in (f"{f}_fc", f"{f}_clim", f"{f}_obs"):
             res[c] = res[c].astype(float)
     out["n_weather"] = int(len(res))
     out["first_issue"], out["last_issue"] = str(res["issue_date"].min()), str(res["issue_date"].max())
@@ -444,7 +444,7 @@ def cstats(led=None):
             if len(g) >= 10:
                 out["weather"].append({"feature": f, "lead": int(lead), "n": int(len(g)),
                                        "mae_fc": round(float((g[f"{f}_fc"] - g[f"{f}_obs"]).abs().mean()), 3),
-                                       "mae_norm": round(float((g[f"{f}_norm"] - g[f"{f}_obs"]).abs().mean()), 3)})
+                                       "mae_clim": round(float((g[f"{f}_clim"] - g[f"{f}_obs"]).abs().mean()), 3)})
     for crop in ("corn", "soybeans"):
         c = res[res["state"] == "ALL"].dropna(subset=[f"dge_{crop}_fc", f"dge_{crop}_obs"]).copy()
         if c.empty:

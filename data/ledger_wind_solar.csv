@@ -1,4 +1,4 @@
-issue_date,model,region,resource,valid_date,lead_days,gen_fc_mwh,gen_normal_mwh,status,gen_obs_mwh,gen_from_obs_weather_mwh,source
+issue_date,model,region,resource,valid_date,lead_days,gen_fc_mwh,gen_clim_mwh,status,gen_obs_mwh,gen_from_obs_weather_mwh,source
 2026-06-01,IFS-00z,CISO,solar,2026-06-01,0,237686.0,220701.0,RESOLVED,205095.0,237472.0,backfill
 2026-06-01,IFS-00z,CISO,solar,2026-06-02,1,236452.0,220398.0,RESOLVED,194586.0,236403.0,backfill
 2026-06-01,IFS-00z,CISO,solar,2026-06-03,2,239462.0,221320.0,RESOLVED,207005.0,235706.0,backfill

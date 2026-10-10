@@ -64,22 +64,22 @@ def region_daily(daily):
 
 
 def impact(reg_temps, model, issue_date):
-    """Per region/day: forecast and normal temperature, degree days, and demand forecast vs normal."""
+    """Per region/day: forecast and climatological temperature, degree days, and demand forecast vs climatology."""
     rows = []
     for reg, s in reg_temps.items():
         m = model["regions"][reg]
-        normal = np.array(m["normal_temp_c_by_doy"])
+        clim = np.array(m["clim_temp_c_by_doy"])
         dates = s.index
-        t_norm = normal[np.minimum(dates.dayofyear, 366) - 1]
+        t_clim = clim[np.minimum(dates.dayofyear, 366) - 1]
         d_fc = demand.predict(m["beta"], dates, s.values)
-        d_norm = demand.predict(m["beta"], dates, t_norm)
+        d_clim = demand.predict(m["beta"], dates, t_clim)
         hdd, cdd = demand.degree_days(s.values)
         for i, d in enumerate(dates):
             rows.append({"region": reg, "valid_date": d.strftime("%Y-%m-%d"),
                          "lead_days": int((d.date() - issue_date).days),
-                         "t_fc_c": round(float(s.values[i]), 2), "t_normal_c": round(float(t_norm[i]), 2),
+                         "t_fc_c": round(float(s.values[i]), 2), "t_clim_c": round(float(t_clim[i]), 2),
                          "hdd_fc": round(float(hdd[i]), 1), "cdd_fc": round(float(cdd[i]), 1),
-                         "demand_fc_mwh": round(float(d_fc[i]), 0), "demand_normal_mwh": round(float(d_norm[i]), 0)})
+                         "demand_fc_mwh": round(float(d_fc[i]), 0), "demand_clim_mwh": round(float(d_clim[i]), 0)})
     return pd.DataFrame(rows)
 
 
@@ -165,13 +165,13 @@ def renewables_impact(daily, rmodel, issue_date):
             continue
         dates = X.index
         gen = renewables.generate(m, dates, X.values)
-        normal = np.array(m["normal_feature_by_doy"])[np.minimum(dates.dayofyear, 366) - 1]
+        clim = np.array(m["clim_feature_by_doy"])[np.minimum(dates.dayofyear, 366) - 1]
         yrs = ((dates - pd.Timestamp(m["t0"])).days / 365.25).values
-        gen_norm = normal * (1 + m["g"] * yrs)
+        gen_clim = clim * (1 + m["g"] * yrs)
         for i, d in enumerate(dates):
             rows.append({"region": ba, "resource": kind, "valid_date": d.strftime("%Y-%m-%d"),
                          "lead_days": int((d.date() - issue_date).days),
-                         "gen_fc_mwh": round(float(gen[i]), 0), "gen_normal_mwh": round(float(gen_norm[i]), 0)})
+                         "gen_fc_mwh": round(float(gen[i]), 0), "gen_clim_mwh": round(float(gen_clim[i]), 0)})
     return pd.DataFrame(rows)
 
 
@@ -276,7 +276,7 @@ def _predict_dge(cmodel, crop, feats, iso):
 
 
 def crop_impact(per_state_daily, cmodel, issue_date):
-    """Per state and week: forecast weather drivers vs normal. Plus an 'ALL' row (ten-state average) carrying the
+    """Per state and week: forecast weather drivers vs climatology. Plus an 'ALL' row (ten-state average) carrying the
     predicted week-on-week change in good+excellent condition for corn and soybeans, in season only."""
     rows = []
     by_week = {}
@@ -289,7 +289,7 @@ def crop_impact(per_state_daily, cmodel, issue_date):
             row = {"state": st, "week_ending": we.strftime("%Y-%m-%d"), "lead_days": int((we.date() - issue_date).days)}
             for f in crops.FEATURES:
                 row[f"{f}_fc"] = round(float(r[f]), 2)
-                row[f"{f}_norm"] = cmodel["normals"][st][f].get(str(iso), np.nan)
+                row[f"{f}_clim"] = cmodel["climatology_drivers"][st][f].get(str(iso), np.nan)
             for crop in crops.CROPS:
                 row[f"dge_{crop.lower()}_fc"] = np.nan
                 row[f"dge_{crop.lower()}_clim"] = np.nan
@@ -302,7 +302,7 @@ def crop_impact(per_state_daily, cmodel, issue_date):
         row = {"state": "ALL", "week_ending": we.strftime("%Y-%m-%d"), "lead_days": rs[0]["lead_days"]}
         for f in crops.FEATURES:
             row[f"{f}_fc"] = round(float(np.mean([r[f"{f}_fc"] for r in rs])), 2)
-            row[f"{f}_norm"] = round(float(np.nanmean([r[f"{f}_norm"] for r in rs])), 3)
+            row[f"{f}_clim"] = round(float(np.nanmean([r[f"{f}_clim"] for r in rs])), 3)
         feats = {f: row[f"{f}_fc"] for f in crops.FEATURES}
         for crop in crops.CROPS:
             row[f"dge_{crop.lower()}_fc"], row[f"dge_{crop.lower()}_clim"] = _predict_dge(cmodel, crop, feats, iso)
