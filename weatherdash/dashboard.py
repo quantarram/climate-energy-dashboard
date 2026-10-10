@@ -34,6 +34,7 @@ section{background:var(--s1);border:1px solid var(--bdr);border-radius:var(--r);
 .s-title{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent2);text-transform:uppercase;letter-spacing:.06em}
 .s-sub{font-family:var(--mono);font-size:11px;color:var(--text2);margin:4px 0 14px;line-height:1.7}
 .charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:var(--gap)}
+.charts>div{min-width:0;overflow:hidden}
 .c-label{font-family:var(--mono);font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
 table{width:100%;border-collapse:collapse;margin-top:14px;font-size:12px}th,td{text-align:right;padding:6px 10px;border-bottom:1px solid var(--bdr);font-family:var(--mono)}
 th:first-child,td:first-child{text-align:left}th{color:var(--text2);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.05em}
@@ -252,6 +253,21 @@ document.getElementById('vnote').innerHTML =
     'Weather drivers come from the forecast at three points in each state&rsquo;s main growing areas (approximate locations): heat-stress degree days are daily maximum temperature above 30 &deg;C, summed over the week; vapour-pressure deficit is the 12:00 to 18:00 local mean; rainfall is the weekly total. ' +
     'The condition model is a ridge regression of the ten-state average week-on-week change in the share rated good or excellent on those drivers and a seasonal term, for ISO weeks 22 to 38 (about June to mid-September). Its skill is estimated by leaving each season out in turn (2015 to 2026), in the table above; the live columns score each issued forecast. Forecast drivers are adjusted for a small measured offset against ERA5 (about 0.5 &deg;C on daily maximum, 0.1 kPa on VPD). ' +
     'Weekly condition change is a noisy target (the ratings are survey-based), so the baselines to beat are the climatological change for that week of the year (the __CC__ average) and no change at all.';
+})();
+// Plotly sizes each chart to its container when it is created. The first charts are created while the page is still
+// short and the grid has not settled (no scrollbar yet), so they come out too wide and spill into their neighbours.
+// Resize every chart once layout is final, and again whenever the page or a grid changes size.
+(function () {
+  const resizeAll = () => document.querySelectorAll('.js-plotly-plot').forEach(p => Plotly.Plots.resize(p));
+  window.addEventListener('load', resizeAll);
+  [100, 400, 1200].forEach(ms => setTimeout(resizeAll, ms));
+  if (window.ResizeObserver) {
+    let raf = null;
+    const ro = new ResizeObserver(() => { if (raf) cancelAnimationFrame(raf); raf = requestAnimationFrame(resizeAll); });
+    ro.observe(document.body);
+    document.querySelectorAll('.charts').forEach(g => ro.observe(g));
+  }
+  window.addEventListener('resize', resizeAll);
 })();
 </script></body></html>"""
 
