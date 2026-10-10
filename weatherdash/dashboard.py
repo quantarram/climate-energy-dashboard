@@ -197,9 +197,12 @@ document.getElementById('vnote').innerHTML =
   let v = '<table><tr><th>Region</th><th>Resource</th><th>Forecast-days</th><th>Error, forecast</th><th>Error, climatology</th><th>Error, observed weather</th></tr>';
   RV.by_series.forEach(r => { v += '<tr><td>' + LABEL[r.region] + '</td><td>' + KIND[r.resource] + '</td><td>' + r.n.toLocaleString() + '</td><td>' + r.nmae_fc.toFixed(1) + '%</td><td>' + r.nmae_clim.toFixed(1) + '%</td><td>' + r.nmae_oracle.toFixed(1) + '%</td></tr>'; });
   document.getElementById('rvtable').innerHTML = v + '</table>';
+  const lead0 = k => RV.by_lead.find(r => r.resource === k && r.lead === 0);
+  const wO = lead0('wind'), sO = lead0('solar');
   document.getElementById('rnote').innerHTML =
-    'Wind: ERA5 or forecast wind at 100 m at candidate generation areas, through a generic turbine curve, weighted by site with weights learned from EIA output; solar: surface solar radiation, same method; both with a linear capacity-growth term fitted on 2023 to 2025. ' +
-    'Daily generation from a few weather points is a rough measure, wind especially: even with observed weather the wind error is large, so wind levels should be read as a guide to windier or calmer than climatology, not as a megawatt forecast. ' +
+    'Wind: forecast (or ERA5) wind speed at 100 m at candidate generation areas, passed through a power curve learned from EIA output (piecewise linear in wind speed, non-negative weights per site); solar: surface solar radiation, mapped linearly with site weights learned the same way; both with a linear capacity-growth term fitted on 2023 to 2025. ' +
+    'Daily generation from a handful of weather points is still approximate' + (wO && sO ? ': even with observed weather the error is about ' + wO.nmae_oracle.toFixed(0) + '% of mean output for wind and ' + sO.nmae_oracle.toFixed(0) + '% for solar (the ceiling the forecast approaches at day 0)' : '') + '. ' +
+    'Forecast levels sit well below the reanalysis at some wind sites (mountain passes especially) and the model drifts as capacity is added, so each series is rescaled to the last 28 days of observed output; that fixes the level, not the day-to-day shape. ' +
     'Error is the mean absolute error of daily generation as a percentage of the series&rsquo; mean daily output; rows count from the first issue with a calibration factor known at issue time (28-day window, at least 7 days old).';
 })();
 
