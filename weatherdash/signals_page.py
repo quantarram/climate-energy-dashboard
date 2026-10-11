@@ -52,7 +52,7 @@ footer a{color:var(--text2)}
 </style></head><body>
 <header><div><div class="h-title">Climate Signals</div>
 <div class="h-sub">Rare, severe, slow climate states, frozen as CPE signals and scored forward</div></div><div class="h-meta" id="hmeta"></div></header>
-<nav><a href="#state">Climate state</a><a href="#watch">Frozen signals</a><a href="#record">Live record</a><a href="archive.html">Archive: daily weather panels</a></nav>
+<nav><a href="#state">Climate state</a><a href="#books">Frozen signals and live record</a><a href="archive.html">Archive: daily weather panels</a></nav>
 <main>
 <div class="banner"><b>What this page tracks, and why only this.</b> The research behind it tested free weather forecasts against prices for gas, power, crops and energy equities, from daily rules to machine-learning models, and found no
 edge: markets already price what the public forecasts say, and day-to-day weather moves prices far less than their own noise. What did hold up out of sample is rare, severe and slow: strong ocean-climate states (El Ni&ntilde;o above all).
@@ -64,26 +64,13 @@ still scored for the registered experiment, are on the <a href="archive.html">ar
 <div class="c-label">Oceanic Nino Index since 1990 (3-month average anomaly, &deg;C; plotted at publication date)</div><div id="oniChart"></div>
 <div class="note">Above +0.5 &deg;C is El Ni&ntilde;o, above +1.5 &deg;C strong; below &minus;0.5 &deg;C is La Ni&ntilde;a. The ONI is published about ten days into the second month after its window, so the latest value describes the three months to the end of last month.</div></section>
 
-<section id="watch"><div class="s-title">Frozen signals: where each condition stands</div>
-<div class="s-sub">Each row is a condition on a slow climate series, with its threshold fixed from formation data (through 2012). A condition fires when the series crosses the threshold; the targets then have the stated horizons to resolve.
-&ldquo;Test&rdquo; is how the same rows scored against the base rate in 2013&ndash;2026, before the freeze.</div>
-<div class="table-wrap"><table id="wtable"></table></div>
-<div class="note" id="wnote"></div></section>
-
-<section id="record"><div class="s-title">Live record since the freeze</div>
-<div class="cards" id="rcards" style="margin-top:14px"></div>
-<div class="table-wrap"><table id="rtable"></table></div>
-<div class="c-label" style="margin-top:18px">Entry events logged</div>
-<div class="table-wrap"><table id="etable"></table></div>
-<details><summary>All frozen rows</summary><div class="table-wrap"><table id="ftable"></table></div></details>
-<div class="note" id="rnote"></div></section>
-
+<div id="books"></div>
 </main>
 <footer>Climate indices: NOAA CPC and PSL &middot; Prices: Yahoo Finance chart data<br>
 Research record, not a trading or operational tool. <a href="https://github.com/quantarram/weather-impacts-dashboard">Code and data</a></footer>
 <script>
 const D = __DATA__;
-const C = D.cpe;
+const A = D.cpe, BK = A.books;
 const f = (x, n) => x === null || x === undefined || Number.isNaN(x) ? '' : Number(x).toFixed(n);
 const sgn = (x, n) => (x >= 0 ? '+' : '') + f(x, n);
 const el = id => document.getElementById(id);
@@ -92,18 +79,18 @@ const BASE = {paper_bgcolor:'transparent',plot_bgcolor:'transparent',height:280,
   legend:{orientation:'h',x:0,y:1.15,font:{size:9}}};
 const CFG = {displayModeBar:false,responsive:true};
 const merge = (a, b) => Object.assign({}, a, b);
-el('hmeta').innerHTML = 'Climate and prices through ' + C.asof + '<br>Updated ' + D.generated_utc + ' UTC';
-el('frz').textContent = C.stats.table_end + ' (table ' + C.stats.table_sha + ')';
+el('hmeta').innerHTML = 'Climate and prices through ' + A.asof + '<br>Updated ' + D.generated_utc + ' UTC';
+el('frz').textContent = BK.map(b => b.frozen_on + ' (' + b.stats.n_table_rows + ' rows, table ' + b.stats.table_sha + ')').join(' and ');
 
 // ---------- climate state
-const E = C.enso, firing = C.watch.filter(w => w.firing);
+const E = A.enso, allW = BK.flatMap(b => b.watch), firing = allW.filter(w => w.firing);
 const ensoCls = /El Nino/.test(E.state) ? 'hot' : /La Nina/.test(E.state) ? 'cold' : '';
 const cards = el('cards');
 const card = (name, pill, pcls, big, small, lines) => { const c = document.createElement('div'); c.className = 'card';
   c.innerHTML = '<div class="c-head"><span class="c-name">' + name + '</span><span class="pill ' + pcls + '">' + pill + '</span></div><div class="big">' + big + ' <small>' + small + '</small></div>' + lines.map(l => '<div class="line">' + l + '</div>').join(''); return c; };
 cards.appendChild(card('Oceanic Nino Index', E.state, ensoCls, sgn(E.oni, 2), '&deg;C', ['three months to ' + E.oni_available.slice(0, 7), 'published ' + E.oni_available]));
 cards.appendChild(card('Nino 3.4 monthly anomaly', E.state, ensoCls, sgn(E.nino34_anom, 2), '&deg;C', ['published ' + E.nino34_available]));
-cards.appendChild(card('Frozen conditions firing', firing.length ? 'live' : 'none', firing.length ? 'on' : 'ok', firing.length + ' of ' + C.watch.length, 'conditions', firing.length ? firing.map(w => w.targets.map(t => t.name).join(', ')) : ['none of the frozen thresholds is crossed']));
+cards.appendChild(card('Frozen conditions firing', firing.length ? 'live' : 'none', firing.length ? 'on' : 'ok', firing.length + ' of ' + allW.length, 'conditions', firing.length ? firing.map(w => w.targets.map(t => t.name).join(', ')) : ['none of the frozen thresholds is crossed']));
 {
   const o = D.oni, x = o.map(r => r[0]), y = o.map(r => r[1]);
   Plotly.newPlot('oniChart', [{x, y, type:'scatter', mode:'lines', line:{color:'#7FAAD1', width:1.4}, hovertemplate:'%{x|%b %Y}: %{y:+.2f}<extra></extra>'}],
@@ -111,37 +98,48 @@ cards.appendChild(card('Frozen conditions firing', firing.length ? 'live' : 'non
       yaxis:merge(BASE.yaxis, {range:[-2.6, 3.2]}), showlegend:false}), CFG);
 }
 
-// ---------- watchlist
-{
-  let t = '<tr><th class="l">Condition</th><th>Now</th><th>Threshold</th><th>State</th><th class="l">Targets (horizon, trading days)</th><th>Rows</th><th>Test CPE vs base</th></tr>';
-  C.watch.forEach(w => {
-    t += '<tr class="' + (w.firing ? 'fire' : '') + '"><td class="wrap">' + w.condition + ' &rarr; <b>' + (w.direction === 'bullish' ? 'targets rise' : 'targets fall') + '</b></td><td>' + sgn(w.now, 2) + '</td><td>' + sgn(w.threshold, 2) + '</td>' +
-         '<td>' + (w.firing ? '<span class="pill on">firing</span>' : '<span class="pill">waiting &middot; ' + f(w.gap, 2) + ' to go</span>') + '</td>' +
-         '<td class="wrap">' + w.targets.map(x => x.name + ' (' + x.horizons.join(', ') + ')').join('; ') + '</td><td>' + w.n_rows + '</td><td>' + f(w.test_cpe, 2) + ' vs ' + f(w.test_base, 2) + '</td></tr>';
-  });
-  el('wtable').innerHTML = t;
-  const nw = C.watch.filter(w => !w.firing).length;
-  el('wnote').innerHTML = 'Units are &deg;C of the index (for averages, the mean anomaly over the window). &ldquo;To go&rdquo; is how far the series must still move to cross its threshold. ' + firing.length + ' of ' + C.watch.length + ' conditions fire now; ' + nw + ' wait.';
-}
-
-// ---------- live record
-{
-  const s = C.stats;
-  const rc = el('rcards');
+// ---------- one watchlist and live record per frozen table
+BK.forEach(C => {
+  const id = C.id, box = document.createElement('div');
+  box.innerHTML =
+    '<section id="watch-' + id + '"><div class="s-title">' + C.label + ': where each condition stands</div>' +
+    '<div class="s-sub">Frozen ' + C.frozen_on + ', thresholds from formation data through 2012. A condition fires when its slow climate series crosses the threshold; the targets then have the stated horizons to resolve. ' +
+    '&ldquo;Test&rdquo; is how the same rows scored against the base rate in 2013&ndash;2026, before the freeze.</div>' +
+    '<div class="note" id="wlead-' + id + '" style="margin:0 0 6px"></div><div class="table-wrap"><table id="wtable-' + id + '"></table></div>' +
+    '<details id="wall-' + id + '"><summary>All ' + C.watch.length + ' conditions</summary><div class="table-wrap"><table id="wfull-' + id + '"></table></div></details>' +
+    '<div class="note" id="wnote-' + id + '"></div></section>' +
+    '<section id="record-' + id + '"><div class="s-title">Live record: ' + C.label + '</div>' +
+    '<div class="cards" id="rcards-' + id + '" style="margin-top:14px"></div>' +
+    '<div class="table-wrap"><table id="rtable-' + id + '"></table></div>' +
+    '<div class="c-label" style="margin-top:18px">Entry events logged</div><div class="table-wrap"><table id="etable-' + id + '"></table></div>' +
+    '<details><summary>All ' + C.frozen_rows_n + ' frozen rows</summary><div class="table-wrap"><table id="ftable-' + id + '"></table></div></details>' +
+    '<div class="note" id="rnote-' + id + '"></div></section>';
+  el('books').appendChild(box);
+  const wrow = w => '<tr class="' + (w.firing ? 'fire' : '') + '"><td class="wrap">' + w.condition + ' &rarr; <b>' + (w.direction === 'bullish' ? 'targets rise' : 'targets fall') + '</b></td><td>' + sgn(w.now, 2) + '</td><td>' + sgn(w.threshold, 2) + '</td>' +
+    '<td>' + (w.firing ? '<span class="pill on">firing</span>' : '<span class="pill">waiting &middot; ' + f(w.gap, 2) + ' to go</span>') + '</td>' +
+    '<td class="wrap">' + w.targets.map(x => x.name + ' (' + x.horizons.join(', ') + ')').join('; ') + '</td><td>' + w.n_rows + '</td><td>' + f(w.test_cpe, 2) + ' vs ' + f(w.test_base, 2) + '</td></tr>';
+  const head = '<tr><th class="l">Condition</th><th>Now</th><th>Threshold</th><th>State</th><th class="l">Targets (horizon, trading days)</th><th>Rows</th><th>Test CPE vs base</th></tr>';
+  const fw = C.watch.filter(w => w.firing), long = C.watch.length > 12;
+  el('wtable-' + id).innerHTML = head + (long ? fw : C.watch).map(wrow).join('');
+  if (!long) el('wall-' + id).style.display = 'none'; else el('wfull-' + id).innerHTML = head + C.watch.map(wrow).join('');
+  el('wlead-' + id).innerHTML = long ? (fw.length ? 'Firing now (' + fw.length + ' of ' + C.watch.length + ' conditions); the rest are in the full list below.' : 'No condition fires now; the full list is below.') : '';
+  el('wnote-' + id).innerHTML = 'Units are &deg;C of the index (for averages, the mean anomaly over the window). &ldquo;To go&rdquo; is how far the series must still move to cross its threshold. ' + fw.length + ' of ' + C.watch.length + ' conditions fire now.' +
+    (C.redundancy ? ' <b>Read the rows with care:</b> ' + C.redundancy : '');
+  const s = C.stats, rc = el('rcards-' + id);
   [['Frozen rows', s.n_table_rows, 'sha ' + s.table_sha], ['Entry events logged', s.n_events, 'since ' + s.table_end], ['Outcomes resolved', s.n_resolved, s.n_pending + ' pending'], ['Last price bar', s.last_bar, 'prices from Yahoo']].forEach(a => {
     const c = document.createElement('div'); c.className = 'card'; c.innerHTML = '<div class="c-name">' + a[0] + '</div><div class="big" style="font-size:22px">' + a[1] + '</div><div class="line">' + a[2] + '</div>'; rc.appendChild(c); });
   let t = '<tr><th class="l">Horizon</th><th>Resolved</th><th>Pending</th><th class="l">First resolves</th><th>Claimed</th><th>Realised</th><th>Table base</th><th>Live base</th></tr>';
   s.by_horizon.forEach(r => { t += '<tr><td>' + r.horizon + ' days</td><td>' + r.n + '</td><td>' + r.n_pending + '</td><td class="l">' + (r.first_pending ? '~' + r.first_pending : '') + '</td><td>' + f(r.claimed, 3) + '</td><td>' + f(r.hit, 3) + '</td><td>' + f(r.base, 3) + '</td><td>' + f(r.live_base, 3) + '</td></tr>'; });
-  el('rtable').innerHTML = t;
+  el('rtable-' + id).innerHTML = t;
   let e = '<tr><th class="l">Entry</th><th class="l">Kind</th><th class="l">Condition</th><th>Move</th><th>Threshold</th><th class="l">Targets</th></tr>';
   C.events.forEach(v => { e += '<tr><td>' + v.entry_date + '</td><td class="l">' + v.kind.replace(/_/g, ' ') + '</td><td class="wrap">' + v.condition + '</td><td>' + sgn(v.x_move, 2) + '</td><td>' + sgn(v.x_threshold, 2) + '</td><td class="wrap">' + v.targets.join(', ') + '</td></tr>'; });
-  el('etable').innerHTML = e;
+  el('etable-' + id).innerHTML = e;
   let g = '<tr><th class="l">Condition</th><th class="l">Target</th><th>Horizon</th><th>Claimed</th><th>Lift</th><th>Form. episodes</th><th>Test</th><th>Base</th><th>Test episodes</th></tr>';
   C.frozen.forEach(r => { g += '<tr><td class="wrap">' + r.condition + '</td><td class="l">' + r.target + ' ' + (r.direction === 'bullish' ? '&uarr;' : '&darr;') + '</td><td>' + r.horizon + '</td><td>' + f(r.claimed, 2) + '</td><td>' + f(r.lift, 2) + '</td><td>' + r.n_ep_f + '</td><td>' + f(r.test_cpe, 2) + '</td><td>' + f(r.test_base, 2) + '</td><td>' + r.n_ep_t + '</td></tr>'; });
-  el('ftable').innerHTML = g;
-  el('rnote').innerHTML = '<b>How outcomes are scored.</b> An event is the first day a condition crosses its frozen threshold (conditions already beyond it on the freeze date are logged once as ongoing). Each event fans out to every frozen row for that condition; the outcome is whether the target&rsquo;s forward move over the row&rsquo;s horizon lands beyond its frozen threshold in the stated direction. ' +
-    'Claimed is the formation CPE, realised the live hit rate, table base the unconditional frequency in formation, live base the unconditional frequency since the freeze. Overlapping horizons are valid samples; no significance test is used. The longest horizons resolve in late 2027, so for now this is a record of conditions and what is pending.';
-}
+  el('ftable-' + id).innerHTML = g;
+  el('rnote-' + id).innerHTML = '<b>How outcomes are scored.</b> An event is the first day a condition crosses its frozen threshold (conditions already beyond it on the data cutoff are logged once as ongoing). Each event fans out to every frozen row for that condition; the outcome is whether the target&rsquo;s forward move over the row&rsquo;s horizon lands beyond its frozen threshold in the stated direction. ' +
+    'Claimed is the formation CPE, realised the live hit rate, table base the unconditional frequency in formation, live base the unconditional frequency since the freeze. Overlapping horizons are valid samples; no significance test is used. The longest horizons resolve in late 2027 and 2028, so for now this is a record of conditions and what is pending.';
+});
 
 (function () {
   const resizeAll = () => document.querySelectorAll('.js-plotly-plot').forEach(p => Plotly.Plots.resize(p));
@@ -155,7 +153,8 @@ cards.appendChild(card('Frozen conditions firing', firing.length ? 'live' : 'non
 def assemble():
     """Collect the three data sources into the page payload (each already fault-tolerant at its own level)."""
     from weatherdash import cpe_climate
-    cpe = cpe_climate.payload()
+    books = cpe_climate.payload_all()
+    cpe = {"asof": books[0]["asof"], "enso": books[0]["enso"], "books": books}
     oni = cpe_climate.index_series("ONI").dropna()
     oni = oni[(oni.index >= "1990-01-01") & (oni.index <= datetime.now(timezone.utc).strftime("%Y-%m-%d"))]
     return {"generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), "cpe": cpe, "oni": [[str(d.date()), round(float(v), 2)] for d, v in oni.items()]}

@@ -35,6 +35,21 @@ EVENTS_PATH = os.path.join(HERE, "cpe_climate_events.csv")
 DATA_DIR = os.path.join(HERE, "indices")
 PRICES_PATH = os.path.join(HERE, "prices.parquet")
 TABLE_END = pd.Timestamp("2026-10-10")
+# Each frozen table is a "book" with its own events log and price store. Batch 1 (ONI, Nino 3.4, SOI, AO, NAO, PDO) was frozen 2026-10-10; batch 3 (more slow climate states) 2026-10-11.
+# Both survivor filters ran on data through 2026-10-10, so both books score only what happens after that date.
+BOOKS = {
+    "b1": {"label": "Batch 1: ENSO, Arctic and Atlantic oscillations", "table": "cpe_climate_table.parquet", "events": "cpe_climate_events.csv", "prices": "prices.parquet", "frozen": "2026-10-10"},
+    "b3": {"label": "Batch 3: Nino regions, MEI, tropical Atlantic, PNA, Southern Annular Mode", "table": "cpe_climate_table_b3.parquet", "events": "cpe_climate_events_b3.csv",
+           "prices": "prices_b3.parquet", "frozen": "2026-10-11"},
+}
+BOOK = "b1"
+
+
+def use(book):
+    """Point the module-level paths at one book."""
+    global TABLE_PATH, EVENTS_PATH, PRICES_PATH, BOOK
+    b = BOOKS[book]
+    TABLE_PATH, EVENTS_PATH, PRICES_PATH, BOOK = os.path.join(HERE, b["table"]), os.path.join(HERE, b["events"]), os.path.join(HERE, b["prices"]), book
 COND = ["X", "tau_past", "q_X", "direction"]
 EVENT_COLS = ["entry_date", "X", "tau_past", "q_X", "direction", "kind", "x_move", "x_threshold", "table_sha"]
 URLS = {
@@ -44,8 +59,15 @@ URLS = {
     "nao.txt": "https://www.cpc.ncep.noaa.gov/products/precip/CWlink/pna/norm.nao.monthly.b5001.current.ascii.table",
     "pdo.txt": "https://psl.noaa.gov/data/correlation/pdo.data",
     "soi.txt": "https://www.cpc.ncep.noaa.gov/data/indices/soi",
+    "meiv2.txt": "https://psl.noaa.gov/data/correlation/meiv2.data",
+    "aao.txt": "https://www.cpc.ncep.noaa.gov/products/precip/CWlink/daily_ao_index/aao/monthly.aao.index.b79.current.ascii",
+    "tna.txt": "https://psl.noaa.gov/data/correlation/tna.data",
+    "tsa.txt": "https://psl.noaa.gov/data/correlation/tsa.data",
+    "whwp.txt": "https://psl.noaa.gov/data/correlation/whwp.data",
+    "pna.txt": "https://psl.noaa.gov/data/correlation/pna.data",
 }
-INDEX_FILES = {"ONI": "oni.txt", "NINO34": "sstoi.txt", "AO": "ao.txt", "NAO": "nao.txt", "PDO": "pdo.txt", "SOI": "soi.txt"}
+INDEX_FILES = {"ONI": "oni.txt", "NINO34": "sstoi.txt", "AO": "ao.txt", "NAO": "nao.txt", "PDO": "pdo.txt", "SOI": "soi.txt",
+               "NINO12": "sstoi.txt", "NINO3": "sstoi.txt", "NINO4": "sstoi.txt", "MEI2": "meiv2.txt", "AAO": "aao.txt", "TNA": "tna.txt", "TSA": "tsa.txt", "WHWP": "whwp.txt", "PNA": "pna.txt"}
 
 
 def table_sha():
@@ -69,9 +91,9 @@ def fetch_indices(names):
             print(f"  index fetch failed for {fn} ({type(e).__name__}); using cached copy")
 
 
-def _next15(vals):
+def _next15(vals, months=1):
     s = pd.Series(vals).dropna()
-    idx = [pd.Timestamp(y, m, 1) + pd.DateOffset(months=1) + pd.Timedelta(days=14) for (y, m) in s.index]
+    idx = [pd.Timestamp(y, m, 1) + pd.DateOffset(months=months) + pd.Timedelta(days=14) for (y, m) in s.index]
     return pd.Series(s.values, index=pd.DatetimeIndex(idx)).sort_index()
 
 
@@ -123,6 +145,22 @@ def index_series(name):
                     if abs(x) < 99:
                         out[(y, m + 1)] = x
         return _next15(out)
+    if name in ("NINO12", "NINO3", "NINO4"):   # CPC OISST regional anomalies, public on the 15th of month m+1
+        d = pd.read_csv(p("sstoi.txt"), sep=r"\s+")
+        d.columns = ["YR", "MON", "N12", "N12A", "N3", "N3A", "N4", "N4A", "N34", "N34A"]
+        col = {"NINO12": "N12A", "NINO3": "N3A", "NINO4": "N4A"}[name]
+        return _next15({(int(r.YR), int(r.MON)): getattr(r, col) for r in d.itertuples()})
+    if name == "MEI2":
+        return _next15(_table_ym(p("meiv2.txt"), 99))
+    if name == "AAO":
+        out = {}
+        for l in open(p("aao.txt")):
+            t = l.split()
+            if len(t) == 3:
+                out[(int(t[0]), int(t[1]))] = float(t[2])
+        return _next15(out)
+    if name in ("TNA", "TSA", "WHWP", "PNA"):   # NOAA PSL files, updated irregularly: taken as public on the 15th of month m+2
+        return _next15(_table_ym(p(name.lower() + ".txt"), 99), months=2)
     raise KeyError(name)
 
 
@@ -311,8 +349,13 @@ def summary():
 
 # ----------------------------------------------------------------------------- dashboard payload
 INDEX_NAMES = {"ONI": "Oceanic Nino Index", "NINO34": "Nino 3.4 sea-surface anomaly", "AO": "Arctic Oscillation", "NAO": "North Atlantic Oscillation", "PDO": "Pacific Decadal Oscillation",
-               "SOI": "Southern Oscillation Index"}
-TARGET_NAMES = {"EWY": "South Korea equities (EWY)", "EWZ": "Brazil equities (EWZ)", "FXI": "China equities (FXI)", "HG=F": "Copper", "INRUSD=X": "Indian rupee", "KC=F": "Coffee",
+               "SOI": "Southern Oscillation Index",
+               "NINO12": "Nino 1+2 (Peru coast) sea-surface anomaly", "NINO3": "Nino 3 sea-surface anomaly", "NINO4": "Nino 4 sea-surface anomaly", "MEI2": "Multivariate ENSO Index v2",
+               "AAO": "Southern Annular Mode", "TNA": "Tropical North Atlantic sea-surface anomaly", "TSA": "Tropical South Atlantic sea-surface anomaly",
+               "WHWP": "Atlantic warm pool", "PNA": "Pacific-North American pattern"}
+TARGET_NAMES = {"CL=F": "Crude oil", "CT=F": "Cotton", "DBB": "Base metals ETF (DBB)", "DJP": "Broad commodities ETN (DJP)", "HE=F": "Lean hogs", "HO=F": "Heating oil",
+                "KE=F": "KC wheat", "NG=F": "Natural gas", "OJ=F": "Orange juice", "SB=F": "Sugar", "UGA": "Gasoline ETF (UGA)", "UNG": "Natural gas ETF (UNG)", "USO": "Oil ETF (USO)",
+                "ZC=F": "Corn", "ZM=F": "Soybean meal", "ZO=F": "Oats", "ZW=F": "Chicago wheat", "EWY": "South Korea equities (EWY)", "EWZ": "Brazil equities (EWZ)", "FXI": "China equities (FXI)", "HG=F": "Copper", "INRUSD=X": "Indian rupee", "KC=F": "Coffee",
                 "RB=F": "Gasoline", "ZARUSD=X": "South African rand", "ZS=F": "Soybeans"}
 
 
@@ -364,20 +407,56 @@ def enso_state():
             "state": cls, "note": "ONI is published about ten days into the second month after its three-month window; Nino 3.4 monthly on the 15th of the following month."}
 
 
+def payload_all():
+    """Payload for every book (frozen table); each is computed with the module paths pointed at that book."""
+    out = []
+    for bid, b in BOOKS.items():
+        use(bid)
+        pl = payload()
+        tb = pd.read_parquet(TABLE_PATH)
+        fam = tb["X"].str.split("_").str[0]
+        enso = fam.isin(["ONI", "NINO34", "NINO12", "NINO3", "NINO4", "MEI2", "SOI"])
+        keys = tb.groupby(["Y", "direction", "tau_future"]).ngroups
+        pl.update({"id": bid, "label": b["label"], "frozen_on": b["frozen"], "frozen_rows_n": int(len(tb)),
+                   "redundancy": (f"{int(enso.sum())} of the {len(tb)} rows come from ENSO indices that move together, so they restate one ocean state and reduce to {keys} distinct target, direction and horizon keys, "
+                                  f"not {len(tb)} independent findings." if enso.sum() > 0.5 * len(tb) else "")})
+        out.append(pl)
+    use("b1")
+    return out
+
+
+def run_all():
+    """Daily step for every book: refresh indices, extend the price store, log new entry events."""
+    names = set()
+    for bid in BOOKS:
+        use(bid)
+        names |= {x.rsplit("_", 1)[0] for x in pd.read_parquet(TABLE_PATH)["X"]}
+    fetch_indices(sorted(names))
+    for bid in BOOKS:
+        use(bid)
+        try:
+            _, failed = update_prices()
+            if failed:
+                print(f"[{bid}] price fetch incomplete:", failed)
+            log_new_events()
+        except Exception as e:  # noqa: BLE001
+            print(f"[{bid}] ledger step failed: {type(e).__name__}: {str(e)[:150]}")
+    use("b1")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--summary", action="store_true")
     ap.add_argument("--status", action="store_true")
     args = ap.parse_args()
-    table = pd.read_parquet(TABLE_PATH)
-    fetch_indices(sorted({x.rsplit("_", 1)[0] for x in table["X"]}))
     if not (args.summary or args.status):
-        _, failed = update_prices()
-        if failed:
-            print("price fetch incomplete:", failed)
-        log_new_events()
-    summary()
-    status()
+        run_all()
+    for bid in BOOKS:
+        use(bid)
+        print(f"\n==== {BOOKS[bid]['label']} ====")
+        summary()
+        status()
+    use("b1")
 
 
 if __name__ == "__main__":

@@ -40,18 +40,13 @@ def signals_stage():
     """Frozen climate signals. Every step is isolated: a failure keeps the last stored data and the page still builds."""
     from weatherdash import cpe_climate, signals_page
     try:
-        table = pd.read_parquet(cpe_climate.TABLE_PATH)
-        cpe_climate.fetch_indices(sorted({x.rsplit("_", 1)[0] for x in table["X"]}))
-        _, failed = cpe_climate.update_prices()
-        if failed:
-            print("climate-ledger price fetch incomplete:", failed)
-        cpe_climate.log_new_events()
+        cpe_climate.run_all()
     except Exception as e:  # noqa: BLE001
         print(f"climate ledger step failed: {type(e).__name__}: {str(e)[:150]}")
     try:
         payload = signals_page.assemble()
         json.dump(payload, open(os.path.join(ROOT, "data", "signals.json"), "w"), default=float)
-        print(f"signals payload written: {len(payload['cpe']['watch'])} watched conditions, {sum(1 for w in payload['cpe']['watch'] if w['firing'])} firing")
+        print(f"signals payload written: {sum(len(b['watch']) for b in payload['cpe'])} watched conditions in {len(payload['cpe'])} frozen tables, {sum(1 for b in payload['cpe'] for w in b['watch'] if w['firing'])} firing")
     except Exception as e:  # noqa: BLE001
         print(f"signals payload failed (keeping the previous one): {type(e).__name__}: {str(e)[:150]}")
 
