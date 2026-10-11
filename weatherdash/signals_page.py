@@ -95,7 +95,7 @@ el('hmeta').innerHTML = 'Climate and prices through ' + A.asof + '<br>Updated ' 
 { const f3 = BK.map(b => b.frozen_on + ' (' + b.stats.n_table_rows + ' rows, table ' + b.stats.table_sha + ')'); el('frz').textContent = f3.length > 1 ? f3.slice(0, -1).join(', ') + ' and ' + f3[f3.length - 1] : f3[0]; }
 
 // ---------- climate state
-const E = A.enso, allW = BK.flatMap(b => b.watch), firing = allW.filter(w => w.firing);
+const E = A.enso, allW = BK.flatMap(b => b.watch.map(w => Object.assign({}, w, {book: b.id}))), firing = allW.filter(w => w.firing);
 const ensoCls = /El Nino/.test(E.state) ? 'hot' : /La Nina/.test(E.state) ? 'cold' : '';
 const cards = el('cards');
 const card = (name, pill, pcls, big, small, lines) => { const c = document.createElement('div'); c.className = 'card';
@@ -104,8 +104,12 @@ cards.appendChild(card('Oceanic Nino Index', E.state, ensoCls, sgn(E.oni, 2), '&
 cards.appendChild(card('Nino 3.4 monthly anomaly', E.state, ensoCls, sgn(E.nino34_anom, 2), '&deg;C', ['published ' + E.nino34_available]));
 {
   const cnt = {};
-  firing.forEach(w => w.targets.forEach(t => { cnt[t.name] = (cnt[t.name] || 0) + 1; }));
-  const lines = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).map(n => n + ': ' + cnt[n] + ' condition' + (cnt[n] > 1 ? 's' : ''));
+  firing.forEach(w => w.targets.forEach(t => {
+    const k = t.name + '|' + w.direction, o = cnt[k] || (cnt[k] = {name: t.name, dir: w.direction, n: 0, surv: 0, watch: 0});
+    o.n += 1; if (w.book === 'b5') o.watch += 1; else o.surv += 1;
+  }));
+  const lines = Object.values(cnt).sort((a, b) => b.n - a.n).map(o => o.name + ': ' + (o.dir === 'bullish' ? 'rises' : 'falls') + ', ' + o.n + ' condition' + (o.n > 1 ? 's' : '') +
+    (o.watch && o.surv ? ' (survivor and watch tier)' : o.watch ? ' (watch tier, weaker evidence)' : ''));
   cards.appendChild(card('Frozen conditions firing', firing.length ? 'live' : 'none', firing.length ? 'on' : 'ok', firing.length + ' of ' + allW.length, 'conditions', firing.length ? lines : ['none of the frozen thresholds is crossed']));
 }
 {
