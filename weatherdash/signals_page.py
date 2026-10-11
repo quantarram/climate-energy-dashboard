@@ -52,7 +52,7 @@ footer a{color:var(--text2)}
 </style></head><body>
 <header><div><div class="h-title">Climate Signals</div>
 <div class="h-sub">Rare, severe, slow climate states, frozen as CPE signals and scored forward</div></div><div class="h-meta" id="hmeta"></div></header>
-<nav><a href="#state">Climate state</a><a href="#books">Frozen signals and live record</a><a href="archive.html">Archive: daily weather panels</a></nav>
+<nav><a href="#state">Climate state</a><a href="#decisions">Registered decisions</a><a href="#books">Frozen signals and live record</a><a href="archive.html">Archive: daily weather panels</a></nav>
 <main>
 <div class="banner"><b>What this page tracks, and why only this.</b> The research behind it tested free weather forecasts against prices for gas, power, crops and energy equities, from daily rules to machine-learning models, and found no
 edge: markets already price what the public forecasts say, and day-to-day weather moves prices far less than their own noise. What did hold up out of sample is rare, severe and slow: strong ocean-climate states (El Ni&ntilde;o above all).
@@ -63,6 +63,19 @@ still scored for the registered experiment, are on the <a href="archive.html">ar
 <div class="cards" id="cards" style="margin-top:14px"></div>
 <div class="c-label">Oceanic Nino Index since 1990 (3-month average anomaly, &deg;C; plotted at publication date)</div><div id="oniChart"></div>
 <div class="note">Above +0.5 &deg;C is El Ni&ntilde;o, above +1.5 &deg;C strong; below &minus;0.5 &deg;C is La Ni&ntilde;a. The ONI is published about ten days into the second month after its window, so the latest value describes the three months to the end of last month.</div></section>
+
+<section id="decisions"><div class="s-title">Registered decisions: what the frozen conditions imply, and what that earns</div>
+<div class="s-sub">The frozen climate conditions below are turned into paper positions by one fixed rule, registered before any result and scored from the first trading day after the freeze. These are implied positions in a research experiment, not advice.
+The same rule run on rows admitted causally in the past shows no historical edge (see the backtest below), so the live record is the test.</div>
+<div class="c-label">Implied positions from the next trading day</div><div class="table-wrap"><table id="dtoday"></table></div>
+<div class="note" id="dnote"></div>
+<div class="cards" id="dcards" style="margin-top:16px"></div>
+<div class="charts"><div><div class="c-label">Live paper portfolio: cumulative log return (net of costs)</div><div id="dLive"></div></div>
+<div><div class="c-label">Causal backtest 2016&ndash;2026: cumulative log return, climate extreme tail (weekly)</div><div id="dBack"></div></div></div>
+<div class="c-label" style="margin-top:18px">Backtest: rows admitted causally each 1 January from outcomes already resolved, then scored on the entries made that year</div>
+<div class="table-wrap"><table id="dbtable"></table></div>
+<div class="note" id="dbnote"></div>
+<details><summary>The registered rule and what would count as evidence</summary><div class="note" id="dreg"></div></details></section>
 
 <div id="books"></div>
 </main>
@@ -96,6 +109,36 @@ cards.appendChild(card('Frozen conditions firing', firing.length ? 'live' : 'non
   Plotly.newPlot('oniChart', [{x, y, type:'scatter', mode:'lines', line:{color:'#7FAAD1', width:1.4}, hovertemplate:'%{x|%b %Y}: %{y:+.2f}<extra></extra>'}],
     merge(BASE, {height:240, shapes:[{type:'rect', xref:'paper', x0:0, x1:1, y0:0.5, y1:4, fillcolor:'rgba(201,120,74,.10)', line:{width:0}}, {type:'rect', xref:'paper', x0:0, x1:1, y0:-4, y1:-0.5, fillcolor:'rgba(91,141,190,.10)', line:{width:0}}],
       yaxis:merge(BASE.yaxis, {range:[-2.6, 3.2]}), showlegend:false}), CFG);
+}
+
+// ---------- registered decisions
+{
+  const Dn = D.decisions, pct = x => (x === null || x === undefined ? '' : (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + '%');
+  let t = '<tr><th class="l">Target</th><th class="l">Position</th><th>Weight</th><th>Rows</th><th class="l">Indices</th><th>Horizons</th><th class="l">Entered</th><th class="l">Open until about</th><th>Claimed CPE</th><th>Test CPE vs base</th></tr>';
+  (Dn.today || []).forEach(d => { t += '<tr><td class="l">' + d.name + ' (' + d.target + ')</td><td class="l"><span class="pill ' + (d.side === 'long' ? 'on' : 'cold') + '">' + d.side + '</span></td><td>' + (d.weight >= 0 ? '+' : '') + f(d.weight, 2) + '</td><td>' + d.supporting_rows + '</td><td class="wrap">' + d.indices.join(', ') + '</td><td>' + d.horizons.join(', ') + '</td><td class="l">' + d.first_entry + '</td><td class="l">' + d.expires_about + '</td><td>' + f(d.claimed_cpe, 2) + '</td><td>' + f(d.test_cpe, 2) + ' vs ' + f(d.test_base, 2) + '</td></tr>'; });
+  if (!(Dn.today || []).length) t += '<tr><td class="l" colspan="10">No frozen condition is active: the paper portfolio is flat.</td></tr>';
+  el('dtoday').innerHTML = t;
+  el('dnote').innerHTML = 'Weights are equal over the ' + (Dn.today || []).length + ' active target(s); the rows column counts how many frozen rows vote for the position, and they come from ENSO indices that move together, so ten rows are one view, not ten. Horizons are in trading days from entry.';
+  const cards = el('dcards'), L = Dn.live || {}, st = L.strategy || {};
+  [['Days scored', Dn.n_days, 'next review at ' + (Dn.review_points.find(r => r > Dn.n_days) || '')], ['Status', Dn.status.replace(/_/g, ' '), 'verdict only at a review'], ['Net annualised return', st.ann_return === undefined ? 'collecting' : pct(st.ann_return), 'same targets held: ' + (L.hold_same && L.hold_same.ann_return !== undefined ? pct(L.hold_same.ann_return) : 'collecting')]].forEach(a => {
+    const c = document.createElement('div'); c.className = 'card'; c.innerHTML = '<div class="c-name">' + a[0] + '</div><div class="big" style="font-size:22px">' + a[1] + '</div><div class="line">' + a[2] + '</div>'; cards.appendChild(c); });
+  const cv = Dn.curves;
+  Plotly.newPlot('dLive', cv.dates.length ? [{x:cv.dates, y:cv.strategy, name:'Climate rule', type:'scatter', mode:'lines', line:{color:'#C8A84A', width:1.6}}, {x:cv.dates, y:cv.hold_same, name:'Same targets, long', type:'scatter', mode:'lines', line:{color:'#7FAAD1', width:1.2}}, {x:cv.dates, y:cv.spy, name:'SPY', type:'scatter', mode:'lines', line:{color:'#5A6A5A', width:1}}] : [],
+    merge(BASE, {height:260, annotations: cv.dates.length ? [] : [{text:'Scoring starts on ' + Dn.registry.first_scored_day, showarrow:false, xref:'paper', yref:'paper', x:0.5, y:0.5, font:{size:12, color:'#8A9F8A'}}], xaxis:merge(BASE.xaxis, {visible: cv.dates.length > 0}), yaxis:merge(BASE.yaxis, {visible: cv.dates.length > 0})}), CFG);
+  const B = Dn.backtest || {}, bc = B.climate && B.climate.curves;
+  if (bc) Plotly.newPlot('dBack', [{x:bc.dates, y:bc.strategy, name:'Climate rule (extreme tail)', type:'scatter', mode:'lines', line:{color:'#C8A84A', width:1.5}}, {x:bc.dates, y:bc.hold_same, name:'Same targets, long', type:'scatter', mode:'lines', line:{color:'#7FAAD1', width:1.2}}, {x:bc.dates, y:bc.spy, name:'SPY', type:'scatter', mode:'lines', line:{color:'#5A6A5A', width:1}}],
+    merge(BASE, {height:260, xaxis:merge(BASE.xaxis, {tickformat:'%Y'})}), CFG);
+  const row = (lab, e, pf) => e ? '<tr><td class="l">' + lab + '</td><td>' + e.events + '</td><td>' + f(e.hit, 3) + '</td><td>' + f(e.base, 3) + '</td><td>' + pct(e.hit_diff) + '</td><td>' + pct(e.mean_return) + '</td><td>' + pct(e.mean_excess) + '</td><td>' + (e.t_events === null ? '' : f(e.t_events, 1)) + ' / ' + (e.t_year_clustered === null ? '' : f(e.t_year_clustered, 1)) + '</td><td>' + (pf ? pct(pf.strategy_full.ann) + ' (Sharpe ' + f(pf.strategy_full.sharpe, 2) + ')' : '') + '</td><td>' + (pf ? pct(pf.hold_same_full.ann) : '') + '</td></tr>' : '';
+  let b = '<tr><th class="l">Arm</th><th>Events</th><th>Hit</th><th>Base</th><th>Diff</th><th>Mean return</th><th>Excess vs drift</th><th>t (events / by year)</th><th>Rule, annualised</th><th>Same targets long</th></tr>';
+  if (B.climate) { const c = B.climate, p = c.portfolio || {};
+    b += row('Climate, admitted, extreme tail (q_X &ge; 0.90)', c.extreme, p['extreme tail q_X>=0.9']) + row('Climate, admitted, moderate tail', c.moderate, p['moderate q_X<0.9']) + row('Climate, all admitted', c.admitted, p['all admitted']) + row('Climate, not admitted (control)', c.not_admitted, null); }
+  if (B.market) { const c = B.market, p = c.portfolio || {};
+    b += row('Control: the program&rsquo;s own market predictors, extreme tail', c.extreme, p['extreme tail q_X>=0.9']) + row('Control: market predictors, all admitted', c.admitted, p['all admitted']); }
+  el('dbtable').innerHTML = b;
+  el('dbnote').innerHTML = '<b>Reading it.</b> Rows admitted by the survivor filter with only past outcomes hit more often than the base rate in the extreme tail, but the effect is small against trade-level variance (about 16 points of excess-return sd per trade), is clustered in 2019&ndash;2023, and does not become a positive return: ' +
+    'the rule earned ' + (B.climate ? pct(B.climate.portfolio['extreme tail q_X>=0.9'].strategy_full.ann) : '') + ' a year in the extreme tail against ' + (B.climate ? pct(B.climate.portfolio['extreme tail q_X>=0.9'].hold_same_full.ann) : '') + ' for holding the same targets. Excess is measured against each target&rsquo;s own mean return in the entry year, signed by the position. ' +
+    'The market control shows the same shape: a hit-rate edge that mostly reproduces long drift. The ENSO batch (first table) is negative on its own. 164 of the 188 extreme-tail trades are median-split direction bets, so a few points of hit rate buy little.';
+  el('dreg').innerHTML = '<b>Hypothesis.</b> ' + Dn.registry.hypothesis + '<br><b>Rule.</b> ' + Dn.registry.rule + '<br><b>Benchmarks.</b> ' + Dn.registry.benchmarks + '<br><b>Evidence of an edge.</b> ' + Dn.registry.evidence_of_edge + '<br><b>History.</b> ' + Dn.registry.history + '<br><b>Not claimed.</b> ' + Dn.registry.not_claimed;
 }
 
 // ---------- one watchlist and live record per frozen table
@@ -153,11 +196,12 @@ BK.forEach(C => {
 def assemble():
     """Collect the three data sources into the page payload (each already fault-tolerant at its own level)."""
     from weatherdash import cpe_climate
+    from weatherdash import climate_decisions
     books = cpe_climate.payload_all()
     cpe = {"asof": books[0]["asof"], "enso": books[0]["enso"], "books": books}
     oni = cpe_climate.index_series("ONI").dropna()
     oni = oni[(oni.index >= "1990-01-01") & (oni.index <= datetime.now(timezone.utc).strftime("%Y-%m-%d"))]
-    return {"generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), "cpe": cpe, "oni": [[str(d.date()), round(float(v), 2)] for d, v in oni.items()]}
+    return {"generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), "cpe": cpe, "decisions": climate_decisions.payload(), "oni": [[str(d.date()), round(float(v), 2)] for d, v in oni.items()]}
 
 
 def build(out_path=None, payload_path=None):
