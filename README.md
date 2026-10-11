@@ -81,3 +81,28 @@ drift as capacity is added); correlation with observed output is untouched. Crop
 about June to mid-September, so the rating outlook is off outside the season while the weather drivers run all year;
 weekly condition change is a noisy target, so it is modelled for the ten-state average. Next: soil moisture, winter
 wheat and non-US regions. Research record, not an operational or trading tool.
+
+## Citation
+
+If you find this work useful, please cite the relevant paper(s):
+
+**Paper 17: the research behind this dashboard**
+```
+RAMANATHAN S, A. (2026). Why Everyday Weather Does Not Move Markets, and
+Where Rare Extremes Might. Zenodo.
+https://doi.org/10.5281/zenodo.23301263
+```
+
+**Method: the conditional exceedance (CPE) framework**
+```
+RAMANATHAN S, A. (2026). A Conditional Exceedance Framework for
+Interpretable Trading Decisions. Zenodo.
+https://doi.org/10.5281/zenodo.20769150
+```
+
+**This dashboard (code and data)**
+```
+RAMANATHAN S, A. (2026). Climate Signals Dashboard (formerly the Weather
+Impacts Dashboard) [software and data]. GitHub.
+https://github.com/quantarram/weather-impacts-dashboard
+```
