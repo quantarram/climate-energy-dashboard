@@ -2,10 +2,12 @@
 
 One dashboard, one daily pipeline. The front page (`docs/index.html`) follows the information the research found usable: rare, severe, slow climate states, as frozen CPE rows.
 
-- **Frozen climate signals**: 43 rows from the CPE engine (ONI, Nino 3.4, SOI, AO, NAO, PDO as slow state series against commodities, equities and currencies), frozen on 2026-10-10 from formation data through 2012,
+- **Frozen climate signals**: four frozen tables (43, 181, 38 and 44 rows; 97 conditions) from the CPE engine; the first table is 43 rows from the engine (ONI, Nino 3.4, SOI, AO, NAO, PDO as slow state series against commodities, equities and currencies), frozen on 2026-10-10 from formation data through 2012,
   with a watchlist of where each condition stands against its threshold, an event log, and a live record scored only on what happens after the freeze (`data/cpe_climate/`, `weatherdash/cpe_climate.py`).
 - **Archive** (`docs/archive.html`): the daily weather-to-demand, wind and solar, crop-stress, gas-burn and storage panels, kept because the registered live experiment (`data/decision_registry.json`) is still being scored.
   Free weather forecasts were tested against prices and carry no signal; see the preprint.
+
+**The research behind it:** *Why Everyday Weather Does Not Move Markets, and Where Rare Extremes Might* (Paper 17): [paper on Zenodo](https://zenodo.org/records/23301263), [Substack post](https://arunramanathans.substack.com/p/why-everyday-weather-does-not-move), code and research scripts in [quant-regime-research](https://github.com/quantarram/quant-regime-research) (`notebooks/weather_finance/`).
 
 `python pipelines/run_daily.py` runs stage 1 (signals, no weather forecast needed) and then stage 2 (the archive below). `--signals-only` runs stage 1 alone; `python pipelines/build_site.py` builds both pages.
 
