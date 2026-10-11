@@ -1,11 +1,10 @@
 # Climate Signals (formerly the Weather Impacts Dashboard)
 
-One dashboard, one daily pipeline. The front page (`docs/index.html`) follows the information the research found usable: rare, severe, slow climate states, as frozen CPE rows.
+One dashboard, one daily pipeline. The front page (`docs/index.html`) follows only slow, rare climate states, as frozen conditional-exceedance (CPE) rows scored forward.
 
-- **Frozen climate signals**: four frozen tables (43, 181, 38 and 44 rows; 97 conditions) from the CPE engine; the first table is 43 rows from the engine (ONI, Nino 3.4, SOI, AO, NAO, PDO as slow state series against commodities, equities and currencies), frozen on 2026-10-10 from formation data through 2012,
-  with a watchlist of where each condition stands against its threshold, an event log, and a live record scored only on what happens after the freeze (`data/cpe_climate/`, `weatherdash/cpe_climate.py`).
-- **Archive** (`docs/archive.html`): the daily weather-to-demand, wind and solar, crop-stress, gas-burn and storage panels, kept because the registered live experiment (`data/decision_registry.json`) is still being scored.
-  Free weather forecasts were tested against prices and carry no signal; see the preprint.
+- **Frozen climate conditions**: four frozen tables (97 conditions) from the CPE engine, with thresholds fixed from data through 2012. Three hold survivors of the engine's filter (43 rows on ONI, Nino 3.4, SOI, AO, NAO and PDO; 181 rows on the Nino regions, MEI, tropical Atlantic, PNA and the Southern Annular Mode; 38 rows on regional drought, Pacific modes, global temperature and snow cover); the fourth is a watch tier of 44 distinct non-ENSO rows with weaker evidence. The page shows where each condition stands against its threshold, an event log, and a live record scored only on what happens after the freeze (`data/cpe_climate/`, `weatherdash/cpe_climate.py`).
+- **Registered decision experiment**: the strong-evidence conditions are converted into implied paper positions by one fixed rule, registered before scoring and scored from 12 October 2026 against holding the same targets and SPY, with reviews at 125, 250 and 500 trading days (`weatherdash/climate_decisions.py`). The same rule on rows admitted causally in the past shows no historical edge, so the live record is the test.
+- **Archive** (`docs/archive.html`): the daily weather-to-demand, wind and solar, crop-stress, gas-burn and storage panels, kept because a second registered live experiment (`data/decision_registry.json`) is still being scored. Free weather forecasts were tested against prices and carry no signal; see the paper.
 
 **The research behind it:** *Why Everyday Weather Does Not Move Markets, and Where Rare Extremes Might* (Paper 17): [paper on Zenodo](https://zenodo.org/records/23301263), [Substack post](https://arunramanathans.substack.com/p/why-everyday-weather-does-not-move), code and research scripts in [quant-regime-research](https://github.com/quantarram/quant-regime-research) (`notebooks/weather_finance/`).
 
