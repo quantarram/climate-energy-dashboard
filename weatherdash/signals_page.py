@@ -93,7 +93,7 @@ const BASE = {paper_bgcolor:'transparent',plot_bgcolor:'transparent',height:280,
 const CFG = {displayModeBar:false,responsive:true};
 const merge = (a, b) => Object.assign({}, a, b);
 el('hmeta').innerHTML = 'Climate and prices through ' + A.asof + '<br>Updated ' + D.generated_utc + ' UTC';
-el('frz').textContent = BK.map(b => b.frozen_on + ' (' + b.stats.n_table_rows + ' rows, table ' + b.stats.table_sha + ')').join(' and ');
+{ const f3 = BK.map(b => b.frozen_on + ' (' + b.stats.n_table_rows + ' rows, table ' + b.stats.table_sha + ')'); el('frz').textContent = f3.length > 1 ? f3.slice(0, -1).join(', ') + ' and ' + f3[f3.length - 1] : f3[0]; }
 
 // ---------- climate state
 const E = A.enso, allW = BK.flatMap(b => b.watch), firing = allW.filter(w => w.firing);
@@ -166,7 +166,7 @@ BK.forEach(C => {
   el('wtable-' + id).innerHTML = head + (long ? fw : C.watch).map(wrow).join('');
   if (!long) el('wall-' + id).style.display = 'none'; else el('wfull-' + id).innerHTML = head + C.watch.map(wrow).join('');
   el('wlead-' + id).innerHTML = long ? (fw.length ? 'Firing now (' + fw.length + ' of ' + C.watch.length + ' conditions); the rest are in the full list below.' : 'No condition fires now; the full list is below.') : '';
-  el('wnote-' + id).innerHTML = 'Units are &deg;C of the index (for averages, the mean anomaly over the window). &ldquo;To go&rdquo; is how far the series must still move to cross its threshold. ' + fw.length + ' of ' + C.watch.length + ' conditions fire now.' +
+  el('wnote-' + id).innerHTML = 'Units are those of the index (&deg;C for temperature and sea-surface series, index points for drought, million km&sup2; for snow cover; for averages, the mean over the window). &ldquo;To go&rdquo; is how far the series must still move to cross its threshold. ' + fw.length + ' of ' + C.watch.length + ' conditions fire now.' +
     (C.redundancy ? ' <b>Read the rows with care:</b> ' + C.redundancy : '');
   const s = C.stats, rc = el('rcards-' + id);
   [['Frozen rows', s.n_table_rows, 'sha ' + s.table_sha], ['Entry events logged', s.n_events, 'since ' + s.table_end], ['Outcomes resolved', s.n_resolved, s.n_pending + ' pending'], ['Last price bar', s.last_bar, 'prices from Yahoo']].forEach(a => {

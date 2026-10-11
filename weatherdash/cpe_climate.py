@@ -41,6 +41,8 @@ BOOKS = {
     "b1": {"label": "Batch 1: ENSO, Arctic and Atlantic oscillations", "table": "cpe_climate_table.parquet", "events": "cpe_climate_events.csv", "prices": "prices.parquet", "frozen": "2026-10-10"},
     "b3": {"label": "Batch 3: Nino regions, MEI, tropical Atlantic, PNA, Southern Annular Mode", "table": "cpe_climate_table_b3.parquet", "events": "cpe_climate_events_b3.csv",
            "prices": "prices_b3.parquet", "frozen": "2026-10-11"},
+    "b4": {"label": "Batch 4: regional drought, Pacific modes, global temperature, snow cover", "table": "cpe_climate_table_b4.parquet", "events": "cpe_climate_events_b4.csv",
+           "prices": "prices_b4.parquet", "frozen": "2026-10-11"},
 }
 BOOK = "b1"
 
@@ -65,9 +67,20 @@ URLS = {
     "tsa.txt": "https://psl.noaa.gov/data/correlation/tsa.data",
     "whwp.txt": "https://psl.noaa.gov/data/correlation/whwp.data",
     "pna.txt": "https://psl.noaa.gov/data/correlation/pna.data",
+    "tni.txt": "https://psl.noaa.gov/data/correlation/tni.data",
+    "npgo.txt": "https://psl.noaa.gov/data/correlation/npgo.data",
+    "gistemp.csv": "https://data.giss.nasa.gov/gistemp/tabledata_v4/GLB.Ts+dSST.csv",
+    "snow.txt": "https://climate.rutgers.edu/snowcover/files/moncov.nhland.txt",
 }
+NCEI_DIR = "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/"
+# drought regions (state-mean Palmer Drought Severity Index, NCEI nClimDiv): NCEI state code -> abbreviation
+PDSI_REGIONS = {"HRWPDSI": ["KS", "OK", "NE", "CO", "TX"], "NPLPDSI": ["ND", "SD", "MN", "MT"], "DLTPDSI": ["AR", "LA", "MS", "TN"], "SEPDSI": ["GA", "FL", "AL", "SC"], "TXPDSI": ["TX"],
+                "WSTPDSI": ["CA", "OR", "WA", "ID", "NV", "UT", "AZ"]}
+NCEI_CODE = {"003": "AR", "016": "LA", "022": "MS", "040": "TN", "009": "GA", "008": "FL", "001": "AL", "038": "SC", "041": "TX", "004": "CA", "035": "OR", "045": "WA", "010": "ID", "026": "NV",
+             "042": "UT", "002": "AZ", "014": "KS", "034": "OK", "025": "NE", "005": "CO", "032": "ND", "039": "SD", "021": "MN", "024": "MT"}
 INDEX_FILES = {"ONI": "oni.txt", "NINO34": "sstoi.txt", "AO": "ao.txt", "NAO": "nao.txt", "PDO": "pdo.txt", "SOI": "soi.txt",
-               "NINO12": "sstoi.txt", "NINO3": "sstoi.txt", "NINO4": "sstoi.txt", "MEI2": "meiv2.txt", "AAO": "aao.txt", "TNA": "tna.txt", "TSA": "tsa.txt", "WHWP": "whwp.txt", "PNA": "pna.txt"}
+               "NINO12": "sstoi.txt", "NINO3": "sstoi.txt", "NINO4": "sstoi.txt", "MEI2": "meiv2.txt", "AAO": "aao.txt", "TNA": "tna.txt", "TSA": "tsa.txt", "WHWP": "whwp.txt", "PNA": "pna.txt",
+               "TNI": "tni.txt", "NPGO": "npgo.txt", "GLBT": "gistemp.csv", "SNOW": "snow.txt", **{k: "climdiv-pdsist.txt" for k in PDSI_REGIONS}}
 
 
 def table_sha():
@@ -80,8 +93,21 @@ def fetch_indices(names):
     """Refetch the NOAA files needed; keep the cached copy if the fetch fails."""
     import requests
     os.makedirs(DATA_DIR, exist_ok=True)
+    if any(n in PDSI_REGIONS for n in names):
+        try:   # the NCEI file name carries a version and the release date, so read the directory listing for the current one
+            lst = requests.get(NCEI_DIR, timeout=40, headers={"User-Agent": "Mozilla/5.0"}).text
+            found = sorted(set(re.findall(r"climdiv-pdsist-v[0-9.]+-[0-9]+", lst)))
+            if found:
+                r = requests.get(NCEI_DIR + found[-1], timeout=60, headers={"User-Agent": "Mozilla/5.0"})
+                if r.status_code == 200 and len(r.text) > 100000:
+                    with open(os.path.join(DATA_DIR, "climdiv-pdsist.txt"), "w") as fh:
+                        fh.write(r.text)
+        except Exception as e:  # noqa: BLE001
+            print(f"  NCEI drought fetch failed ({type(e).__name__}); using cached copy")
     for n in names:
         fn = INDEX_FILES[n]
+        if fn == "climdiv-pdsist.txt":
+            continue
         try:
             r = requests.get(URLS[fn], timeout=40, headers={"User-Agent": "Mozilla/5.0"})
             if r.status_code == 200 and len(r.text) > 2000:
@@ -161,6 +187,48 @@ def index_series(name):
         return _next15(out)
     if name in ("TNA", "TSA", "WHWP", "PNA"):   # NOAA PSL files, updated irregularly: taken as public on the 15th of month m+2
         return _next15(_table_ym(p(name.lower() + ".txt"), 99), months=2)
+    if name in PDSI_REGIONS:   # NCEI state PDSI, region mean; public on the 12th of month m+1
+        rows = {}
+        for line in open(p("climdiv-pdsist.txt")):
+            code = line[:3]
+            if len(line) < 20 or code not in NCEI_CODE:
+                continue
+            year, vals = int(line[6:10]), line[10:].split()
+            if len(vals) < 12:
+                continue
+            for m, v in enumerate(vals[:12], 1):
+                x = float(v)
+                if x > -99:
+                    rows.setdefault(NCEI_CODE[code], {})[pd.Timestamp(year, m, 1)] = x
+        df = pd.DataFrame(rows).sort_index()
+        sr = df[PDSI_REGIONS[name]].mean(axis=1).dropna()
+        return pd.Series(sr.values, index=pd.DatetimeIndex([d + pd.DateOffset(months=1) + pd.Timedelta(days=11) for d in sr.index])).sort_index()
+    if name == "TNI":
+        return _next15(_table_ym(p("tni.txt"), 99), months=5)
+    if name == "NPGO":
+        return _next15(_table_ym(p("npgo.txt"), 99), months=2)
+    if name == "GLBT":
+        out = {}
+        for l in open(p("gistemp.csv")):
+            t = l.strip().split(",")
+            if t and re.fullmatch(r"\d{4}", t[0]):
+                for m, v in enumerate(t[1:13], 1):
+                    try:
+                        out[(int(t[0]), m)] = float(v)
+                    except ValueError:
+                        pass
+        return _next15(out)
+    if name == "SNOW":   # Northern Hemisphere snow-cover extent anomaly vs fixed 1981-2010 monthly normals, million km2
+        raw = {}
+        for l in open(p("snow.txt")):
+            t = l.split()
+            if len(t) == 3:
+                raw[pd.Timestamp(int(t[0]), int(t[1]), 1)] = float(t[2]) / 1e6
+        sr = pd.Series(raw).sort_index()
+        base = sr[(sr.index.year >= 1981) & (sr.index.year <= 2010)]
+        clim = base.groupby(base.index.month).mean()
+        an = sr - sr.index.month.map(clim).values
+        return _next15({(d.year, d.month): v for d, v in an.items()})
     raise KeyError(name)
 
 
@@ -352,8 +420,11 @@ INDEX_NAMES = {"ONI": "Oceanic Nino Index", "NINO34": "Nino 3.4 sea-surface anom
                "SOI": "Southern Oscillation Index",
                "NINO12": "Nino 1+2 (Peru coast) sea-surface anomaly", "NINO3": "Nino 3 sea-surface anomaly", "NINO4": "Nino 4 sea-surface anomaly", "MEI2": "Multivariate ENSO Index v2",
                "AAO": "Southern Annular Mode", "TNA": "Tropical North Atlantic sea-surface anomaly", "TSA": "Tropical South Atlantic sea-surface anomaly",
-               "WHWP": "Atlantic warm pool", "PNA": "Pacific-North American pattern"}
-TARGET_NAMES = {"CL=F": "Crude oil", "CT=F": "Cotton", "DBB": "Base metals ETF (DBB)", "DJP": "Broad commodities ETN (DJP)", "HE=F": "Lean hogs", "HO=F": "Heating oil",
+               "WHWP": "Atlantic warm pool", "PNA": "Pacific-North American pattern",
+               "HRWPDSI": "Wheat-belt drought index (PDSI)", "NPLPDSI": "Northern-plains drought index (PDSI)", "DLTPDSI": "Mississippi Delta drought index (PDSI)", "SEPDSI": "Southeast drought index (PDSI)",
+               "TXPDSI": "Texas drought index (PDSI)", "WSTPDSI": "Western drought index (PDSI)", "TNI": "Trans-Nino index", "NPGO": "North Pacific Gyre Oscillation",
+               "GLBT": "Global temperature anomaly", "SNOW": "Northern Hemisphere snow-cover anomaly"}
+TARGET_NAMES = {"CC=F": "Cocoa", "LE=F": "Live cattle", "CL=F": "Crude oil", "CT=F": "Cotton", "DBB": "Base metals ETF (DBB)", "DJP": "Broad commodities ETN (DJP)", "HE=F": "Lean hogs", "HO=F": "Heating oil",
                 "KE=F": "KC wheat", "NG=F": "Natural gas", "OJ=F": "Orange juice", "SB=F": "Sugar", "UGA": "Gasoline ETF (UGA)", "UNG": "Natural gas ETF (UNG)", "USO": "Oil ETF (USO)",
                 "ZC=F": "Corn", "ZM=F": "Soybean meal", "ZO=F": "Oats", "ZW=F": "Chicago wheat", "EWY": "South Korea equities (EWY)", "EWZ": "Brazil equities (EWZ)", "FXI": "China equities (FXI)", "HG=F": "Copper", "INRUSD=X": "Indian rupee", "KC=F": "Coffee",
                 "RB=F": "Gasoline", "ZARUSD=X": "South African rand", "ZS=F": "Soybeans"}
