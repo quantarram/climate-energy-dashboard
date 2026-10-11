@@ -17,7 +17,7 @@ import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from weatherdash import fetch, forecast, ledger  # noqa: E402
+from weatherdash import fetch, forecast, ledger, truth  # noqa: E402
 
 
 def latest_available_date(now):
@@ -60,9 +60,17 @@ def main():
     if args.backfill:
         return
     if not args.no_score:
-        print("scored", ledger.score(forecast.load_model()), "temperature/demand rows")
-        print("scored", ledger.rscore(forecast.load_renewables()), "wind/solar rows")
-        print("filled", ledger.cscore(), "crop-stress outcomes")
+        # Scoring needs the free Open-Meteo archive, which rate-limits shared CI addresses. It gets a fixed time budget and
+        # a failure only defers scoring (rows stay pending and are retried next run); it never stops the forecast being
+        # logged, the payload written or the dashboard published.
+        truth.set_budget(600)
+        for label, fn in (("temperature/demand rows", lambda: ledger.score(forecast.load_model())),
+                          ("wind/solar rows", lambda: ledger.rscore(forecast.load_renewables())),
+                          ("crop-stress outcomes", ledger.cscore)):
+            try:
+                print("scored", fn(), label)
+            except Exception as e:  # noqa: BLE001
+                print(f"scoring deferred for {label}: {type(e).__name__}: {str(e)[:120]}")
     renew_model = forecast.load_renewables()["models"]
     crop_model = forecast.load_crop_model()["models"]
     payload = {

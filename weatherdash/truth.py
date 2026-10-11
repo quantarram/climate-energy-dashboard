@@ -1,106 +1,155 @@
-"""Observed temperature (ERA5 reanalysis via Open-Meteo, free, no key) for verification and model fitting."""
+"""Observed weather for verification and model fitting: ERA5 reanalysis and ERA5-Land via Open-Meteo (free, no key).
+
+The free tier rate-limits by minute, hour and day. Two modes:
+  * interactive / fitting (default): wait out the limit that was hit and carry on;
+  * daily CI (env OPEN_METEO_NO_WAIT=1): never wait. A limit, or an exhausted time budget (set_budget), raises
+    OpenMeteoUnavailable at once, and the caller defers scoring to the next run instead of stalling the job.
+"""
+import datetime as _dt
+import os
 import time
 
 import pandas as pd
 import requests
 
 API = "https://archive-api.open-meteo.com/v1/archive"
+DEADLINE = None
 
 
-def city_daily_mean_c(lat, lon, tz, start, end, tries=6):
+class OpenMeteoUnavailable(RuntimeError):
+    """Open-Meteo could not be used right now (rate limit, time budget, repeated failures)."""
+
+
+def set_budget(seconds):
+    """Give all Open-Meteo calls from now on a total wall-clock budget."""
+    global DEADLINE
+    DEADLINE = time.time() + seconds
+
+
+def _reason(r):
+    try:
+        return str(r.json().get("reason", ""))
+    except ValueError:
+        return ""
+
+
+def _wait_for_limit(reason):
+    low = reason.lower()
+    now = _dt.datetime.now()
+    if "minutely" in low:
+        wait = 75
+    elif "hourly" in low:
+        wait = 3600 - (now.minute * 60 + now.second) + 20
+    else:  # daily quota resets at 00:00 UTC
+        utc = _dt.datetime.now(_dt.timezone.utc)
+        wait = 86400 - (utc.hour * 3600 + utc.minute * 60 + utc.second) + 180
+    print(f"  Open-Meteo limit reached ({reason[:45]}); waiting {wait // 60} min", flush=True)
+    time.sleep(wait)
+
+
+def _get_json(params, tries=6, timeout=60):
+    last = None
+    for a in range(tries):
+        if DEADLINE is not None and time.time() > DEADLINE:
+            raise OpenMeteoUnavailable("time budget for Open-Meteo calls exhausted")
+        try:
+            r = requests.get(API, params=params, timeout=timeout)
+        except requests.RequestException as e:
+            last = type(e).__name__
+            time.sleep(min(2 ** a, 20))
+            continue
+        if r.status_code == 200:
+            try:
+                return r.json()
+            except ValueError:
+                last = "unreadable response"
+                time.sleep(min(2 ** a, 20))
+                continue
+        reason = _reason(r)
+        if "limit" in reason.lower():
+            if os.environ.get("OPEN_METEO_NO_WAIT") == "1":
+                raise OpenMeteoUnavailable(reason)
+            _wait_for_limit(reason)
+            continue
+        last = f"{r.status_code} {reason[:60]}"
+        time.sleep(min(2 ** a * 2, 30))
+    raise OpenMeteoUnavailable(f"failed after {tries} tries: {last}")
+
+
+def city_daily_mean_c(lat, lon, tz, start, end):
     """Daily mean 2 m temperature (deg C) of the local civil day, from hourly ERA5."""
-    params = dict(latitude=lat, longitude=lon, start_date=start, end_date=end, hourly="temperature_2m",
-                  timezone=tz)
-    for a in range(tries):
-        r = requests.get(API, params=params, timeout=90)
-        if r.status_code == 200:
-            h = r.json()["hourly"]
-            s = pd.Series(h["temperature_2m"], index=pd.to_datetime(h["time"]), dtype=float)
-            return s.groupby(s.index.date).agg(lambda x: x.mean() if x.count() >= 23 else float("nan")).dropna()
-        time.sleep(min(2 ** a * 2, 30))
-    raise RuntimeError(f"Open-Meteo failed for {lat},{lon}: {r.status_code} {r.text[:120]}")
+    h = _get_json(dict(latitude=lat, longitude=lon, start_date=start, end_date=end, hourly="temperature_2m", timezone=tz))["hourly"]
+    s = pd.Series(h["temperature_2m"], index=pd.to_datetime(h["time"]), dtype=float)
+    return s.groupby(s.index.date).agg(lambda x: x.mean() if x.count() >= 23 else float("nan")).dropna()
 
 
-def city_daily_history(lat, lon, tz, start, end, tries=6):
+def city_daily_history(lat, lon, tz, start, end):
     """Daily mean 2 m temperature (deg C), local civil day, over a long span (daily endpoint)."""
-    params = dict(latitude=lat, longitude=lon, start_date=start, end_date=end, daily="temperature_2m_mean",
-                  timezone=tz)
-    for a in range(tries):
-        r = requests.get(API, params=params, timeout=120)
-        if r.status_code == 200:
-            d = r.json()["daily"]
-            s = pd.Series(d["temperature_2m_mean"], index=pd.to_datetime(d["time"]), dtype=float)
-            return s.dropna()
-        time.sleep(min(2 ** a * 2, 30))
-    raise RuntimeError(f"Open-Meteo failed for {lat},{lon}: {r.status_code} {r.text[:120]}")
+    d = _get_json(dict(latitude=lat, longitude=lon, start_date=start, end_date=end, daily="temperature_2m_mean", timezone=tz),
+                  timeout=120)["daily"]
+    return pd.Series(d["temperature_2m_mean"], index=pd.to_datetime(d["time"]), dtype=float).dropna()
 
 
-def site_hourly(lat, lon, tz, start, end, tries=8, cache_dir=None):
-    """Hourly ERA5 100 m wind speed (m/s) and surface solar radiation (W/m2, mean over the preceding hour),
-    local time, as a DataFrame. Split by year so each response stays small; finished past years are cached
-    on disk when cache_dir is given (fitting only -- the daily job never caches)."""
-    import os
-    frames = []
+def _years(start, end):
     for y in range(int(start[:4]), int(end[:4]) + 1):
-        s, e = max(start, f"{y}-01-01"), min(end, f"{y}-12-31")
+        yield y, max(start, f"{y}-01-01"), min(end, f"{y}-12-31")
+
+
+def site_hourly(lat, lon, tz, start, end, cache_dir=None):
+    """Hourly ERA5 100 m wind speed (m/s) and surface solar radiation (W/m2, mean over the preceding hour), local time.
+    Split by year; finished past years are cached on disk when cache_dir is given (fitting only)."""
+    frames = []
+    for y, s, e in _years(start, end):
         cpath = os.path.join(cache_dir, f"{lat}_{lon}_{tz.replace('/', '-')}_{y}.csv") if cache_dir else None
         if cpath and y < int(end[:4]) and os.path.exists(cpath):
             frames.append(pd.read_csv(cpath, index_col=0, parse_dates=True))
             continue
-        params = dict(latitude=lat, longitude=lon, start_date=s, end_date=e, timezone=tz, wind_speed_unit="ms",
-                      hourly="wind_speed_100m,shortwave_radiation")
-        df = None
-        for a in range(tries):
-            try:
-                r = requests.get(API, params=params, timeout=120)
-                if r.status_code == 200:
-                    h = r.json()["hourly"]
-                    df = pd.DataFrame({"wind100": h["wind_speed_100m"], "ghi": h["shortwave_radiation"]},
-                                      index=pd.to_datetime(h["time"]))
-                    break
-            except (requests.RequestException, ValueError):
-                pass
-            time.sleep(min(2 ** a * 2, 60))
-        if df is None:
-            raise RuntimeError(f"Open-Meteo hourly failed {lat},{lon},{y}")
+        h = _get_json(dict(latitude=lat, longitude=lon, start_date=s, end_date=e, timezone=tz, wind_speed_unit="ms",
+                           hourly="wind_speed_100m,shortwave_radiation"), timeout=120)["hourly"]
+        df = pd.DataFrame({"wind100": h["wind_speed_100m"], "ghi": h["shortwave_radiation"]}, index=pd.to_datetime(h["time"]))
         if cpath and y < int(end[:4]):
             os.makedirs(cache_dir, exist_ok=True)
             df.to_csv(cpath)
         frames.append(df)
-        time.sleep(0.25)
+        if cache_dir:
+            time.sleep(4.0)
     return pd.concat(frames).astype(float)
 
 
-def point_hourly(lat, lon, tz, start, end, tries=8, cache_dir=None):
-    """Hourly ERA5 2 m temperature, dew point (deg C) and precipitation (mm), local time; finished past years cached on
-    disk when cache_dir is given (fitting only)."""
-    import os
+def point_hourly(lat, lon, tz, start, end, cache_dir=None):
+    """Hourly ERA5 2 m temperature, dew point (deg C) and precipitation (mm), local time; cached like site_hourly."""
     frames = []
-    for y in range(int(start[:4]), int(end[:4]) + 1):
-        s, e = max(start, f"{y}-01-01"), min(end, f"{y}-12-31")
+    for y, s, e in _years(start, end):
         cpath = os.path.join(cache_dir, f"crop_{lat}_{lon}_{tz.replace('/', '-')}_{y}.csv") if cache_dir else None
         if cpath and y < int(end[:4]) and os.path.exists(cpath):
             frames.append(pd.read_csv(cpath, index_col=0, parse_dates=True))
             continue
-        params = dict(latitude=lat, longitude=lon, start_date=s, end_date=e, timezone=tz,
-                      hourly="temperature_2m,dew_point_2m,precipitation")
-        df = None
-        for a in range(tries):
-            try:
-                r = requests.get(API, params=params, timeout=120)
-                if r.status_code == 200:
-                    h = r.json()["hourly"]
-                    df = pd.DataFrame({"t2m": h["temperature_2m"], "d2m": h["dew_point_2m"], "precip": h["precipitation"]},
-                                      index=pd.to_datetime(h["time"]))
-                    break
-            except (requests.RequestException, ValueError):
-                pass
-            time.sleep(min(2 ** a * 2, 60))
-        if df is None:
-            raise RuntimeError(f"Open-Meteo hourly failed {lat},{lon},{y}")
+        h = _get_json(dict(latitude=lat, longitude=lon, start_date=s, end_date=e, timezone=tz,
+                           hourly="temperature_2m,dew_point_2m,precipitation"), timeout=120)["hourly"]
+        df = pd.DataFrame({"t2m": h["temperature_2m"], "d2m": h["dew_point_2m"], "precip": h["precipitation"]},
+                          index=pd.to_datetime(h["time"]))
         if cpath and y < int(end[:4]):
             os.makedirs(cache_dir, exist_ok=True)
             df.to_csv(cpath)
         frames.append(df)
-        time.sleep(0.25)
+        if cache_dir:
+            time.sleep(4.0)
     return pd.concat(frames).astype(float)
+
+
+def soil_daily(lat, lon, tz, start, end, cache_dir=None):
+    """Daily mean root-zone (0-100 cm) volumetric soil moisture (m3/m3) from ERA5-Land, layers weighted 7:21:72 by thickness."""
+    cpath = os.path.join(cache_dir, f"soil_{lat}_{lon}_{tz.replace('/', '-')}.csv") if cache_dir else None
+    if cpath and os.path.exists(cpath):
+        cached = pd.read_csv(cpath, index_col=0, parse_dates=True).iloc[:, 0]
+        if cached.index.max() >= pd.Timestamp(end) - pd.Timedelta(days=10):
+            return cached
+    d = _get_json(dict(latitude=lat, longitude=lon, start_date=start, end_date=end, timezone=tz,
+                       daily="soil_moisture_0_to_7cm_mean,soil_moisture_7_to_28cm_mean,soil_moisture_28_to_100cm_mean"),
+                  timeout=120)["daily"]
+    df = pd.DataFrame({k: d[k] for k in d if k != "time"}, index=pd.to_datetime(d["time"])).astype(float)
+    out = ((7 * df.iloc[:, 0] + 21 * df.iloc[:, 1] + 72 * df.iloc[:, 2]) / 100).rename("sm")
+    if cpath:
+        os.makedirs(cache_dir, exist_ok=True)
+        out.to_csv(cpath)
+    return out
