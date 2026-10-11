@@ -45,15 +45,22 @@ def append(new, source="live"):
 
 
 def _obs_temps(dates, today):
-    """Regional pop-weighted daily mean temperature (deg C) from ERA5 for the given date range."""
+    """Regional pop-weighted daily mean temperature (deg C) from ERA5 for the given date range (one batched request)."""
     start, end = min(dates), max(dates)
+    flat = [(reg, c, v) for reg, spec in regions.REGIONS.items() for c, v in spec["cities"].items()]
+    frames = truth.hourly_batch([(v[0], v[1]) for _, _, v in flat], ["temperature_2m"], start, end)
+    daily = {}
+    for (reg, c, v), f in zip(flat, frames):
+        h = truth.to_local(f, regions.city_tz(reg, c))["temperature_2m"]
+        g = h.groupby(h.index.date)
+        d = g.mean()[g.count() >= 23]
+        d.index = pd.to_datetime(d.index)
+        daily[(reg, c)] = d
     out = {}
     for reg, spec in regions.REGIONS.items():
-        ser, w = [], []
-        for c, (lat, lon, wt) in spec["cities"].items():
-            ser.append(truth.city_daily_history(lat, lon, regions.city_tz(reg, c), start, end))
-            w.append(wt)
-        df = pd.concat(ser, axis=1).dropna()
+        cols = [daily[(reg, c)] for c in spec["cities"]]
+        w = [spec["cities"][c][2] for c in spec["cities"]]
+        df = pd.concat(cols, axis=1).dropna()
         out[reg] = pd.Series((df.values * (np.array(w) / sum(w))).sum(axis=1), index=df.index)
     return out
 
@@ -201,8 +208,11 @@ def rscore(rmodel, today=None):
     obs = {(r.ba, r.resource, r.date): r.gen_mwh for r in gen.itertuples()}
     # observed weather drivers at each site (ERA5 hourly) -> model-implied generation
     feats = {}
-    for ba, kind, site, lat, lon in regions.site_list():
-        h = truth.site_hourly(lat, lon, regions.REGIONS[ba]["tz"], start, end)
+    sites = regions.site_list()
+    frames = truth.hourly_batch([(x[3], x[4]) for x in sites], ["wind_speed_100m", "shortwave_radiation"], start, end,
+                                extra={"wind_speed_unit": "ms"})
+    for (ba, kind, site, lat, lon), f in zip(sites, frames):
+        h = truth.to_local(f.rename(columns={"wind_speed_100m": "wind100", "shortwave_radiation": "ghi"}), regions.REGIONS[ba]["tz"])
         feats[(ba, kind, site)] = renewables.daily_features(h, kind)
     n = 0
     for idx, r in due.iterrows():
@@ -409,8 +419,13 @@ def cscore(today=None, refresh_nass=True):
         start = (pd.to_datetime(need["week_ending"]).min() - pd.Timedelta(days=6)).strftime("%Y-%m-%d")
         end = pd.to_datetime(need["week_ending"]).max().strftime("%Y-%m-%d")
         wk = {}
-        for st, (tz, pts) in crops.CROP_STATES.items():
-            pdaily = [crops.daily_from_hourly(truth.point_hourly(la, lo, tz, start, end), tz) for la, lo in pts]
+        flat = [(st, tz, la, lo) for st, (tz, pts) in crops.CROP_STATES.items() for la, lo in pts]
+        frames = truth.hourly_batch([(x[2], x[3]) for x in flat], ["temperature_2m", "dew_point_2m", "precipitation"], start, end)
+        by_state = {}
+        for (st, tz, la, lo), f in zip(flat, frames):
+            h = truth.to_local(f.rename(columns={"temperature_2m": "t2m", "dew_point_2m": "d2m", "precipitation": "precip"}), tz)
+            by_state.setdefault(st, []).append(crops.daily_from_hourly(h, tz))
+        for st, pdaily in by_state.items():
             common = pdaily[0].index
             for p in pdaily[1:]:
                 common = common.intersection(p.index)

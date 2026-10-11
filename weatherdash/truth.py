@@ -153,3 +153,32 @@ def soil_daily(lat, lon, tz, start, end, cache_dir=None):
         os.makedirs(cache_dir, exist_ok=True)
         out.to_csv(cpath)
     return out
+
+
+def hourly_batch(points, hourly, start, end, extra=None, chunk=20):
+    """Several locations in one request. points: [(lat, lon)]; hourly: list of Open-Meteo hourly variables.
+    Returns one DataFrame per point (same order), UTC-naive hourly index, one column per variable. The window is widened a day
+    on each side so every local day of [start, end] is complete after conversion to local time (to_local)."""
+    a = (pd.Timestamp(start) - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    b = (pd.Timestamp(end) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    out = []
+    for i in range(0, len(points), chunk):
+        pts = points[i:i + chunk]
+        params = dict(latitude=",".join(str(p[0]) for p in pts), longitude=",".join(str(p[1]) for p in pts),
+                      start_date=a, end_date=b, hourly=",".join(hourly), timezone="UTC")
+        if extra:
+            params.update(extra)
+        js = _get_json(params, timeout=120)
+        if isinstance(js, dict):
+            js = [js]
+        for loc in js:
+            h = loc["hourly"]
+            out.append(pd.DataFrame({v: h[v] for v in hourly}, index=pd.to_datetime(h["time"])).astype(float))
+    return out
+
+
+def to_local(df, tz):
+    """Re-label a UTC-naive hourly frame with local wall-clock time (what the per-location timezone requests return)."""
+    d = df.copy()
+    d.index = d.index.tz_localize("UTC").tz_convert(tz).tz_localize(None)
+    return d
