@@ -46,7 +46,7 @@ def signals_stage():
     try:
         payload = signals_page.assemble()
         json.dump(payload, open(os.path.join(ROOT, "data", "signals.json"), "w"), default=float)
-        print(f"signals payload written: {sum(len(b['watch']) for b in payload['cpe'])} watched conditions in {len(payload['cpe'])} frozen tables, {sum(1 for b in payload['cpe'] for w in b['watch'] if w['firing'])} firing")
+        print(f"signals payload written: {sum(len(b['watch']) for b in payload['cpe']['books'])} watched conditions in {len(payload['cpe']['books'])} frozen tables, {sum(1 for b in payload['cpe']['books'] for w in b['watch'] if w['firing'])} firing")
     except Exception as e:  # noqa: BLE001
         print(f"signals payload failed (keeping the previous one): {type(e).__name__}: {str(e)[:150]}")
 
