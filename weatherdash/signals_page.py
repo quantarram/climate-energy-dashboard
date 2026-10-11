@@ -102,7 +102,12 @@ const card = (name, pill, pcls, big, small, lines) => { const c = document.creat
   c.innerHTML = '<div class="c-head"><span class="c-name">' + name + '</span><span class="pill ' + pcls + '">' + pill + '</span></div><div class="big">' + big + ' <small>' + small + '</small></div>' + lines.map(l => '<div class="line">' + l + '</div>').join(''); return c; };
 cards.appendChild(card('Oceanic Nino Index', E.state, ensoCls, sgn(E.oni, 2), '&deg;C', ['three months to ' + E.oni_available.slice(0, 7), 'published ' + E.oni_available]));
 cards.appendChild(card('Nino 3.4 monthly anomaly', E.state, ensoCls, sgn(E.nino34_anom, 2), '&deg;C', ['published ' + E.nino34_available]));
-cards.appendChild(card('Frozen conditions firing', firing.length ? 'live' : 'none', firing.length ? 'on' : 'ok', firing.length + ' of ' + allW.length, 'conditions', firing.length ? firing.map(w => w.targets.map(t => t.name).join(', ')) : ['none of the frozen thresholds is crossed']));
+{
+  const cnt = {};
+  firing.forEach(w => w.targets.forEach(t => { cnt[t.name] = (cnt[t.name] || 0) + 1; }));
+  const lines = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]).map(n => n + ': ' + cnt[n] + ' condition' + (cnt[n] > 1 ? 's' : ''));
+  cards.appendChild(card('Frozen conditions firing', firing.length ? 'live' : 'none', firing.length ? 'on' : 'ok', firing.length + ' of ' + allW.length, 'conditions', firing.length ? lines : ['none of the frozen thresholds is crossed']));
+}
 {
   const o = D.oni, x = o.map(r => r[0]), y = o.map(r => r[1]);
   Plotly.newPlot('oniChart', [{x, y, type:'scatter', mode:'lines', line:{color:'#7FAAD1', width:1.4}, hovertemplate:'%{x|%b %Y}: %{y:+.2f}<extra></extra>'}],
@@ -112,9 +117,9 @@ cards.appendChild(card('Frozen conditions firing', firing.length ? 'live' : 'non
 
 // ---------- registered decisions
 {
-  const Dn = D.decisions, pct = x => (x === null || x === undefined ? '' : (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + '%');
+  const Dn = D.decisions, pts = x => (x === null || x === undefined ? '' : (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + ' pts'), pct = x => (x === null || x === undefined ? '' : (x >= 0 ? '+' : '') + (x * 100).toFixed(1) + '%');
   let t = '<tr><th class="l">Target</th><th class="l">Position</th><th>Weight</th><th>Rows</th><th class="l">Indices</th><th>Horizons</th><th class="l">Entered</th><th class="l">Open until about</th><th>Claimed CPE</th><th>Test CPE vs base</th></tr>';
-  (Dn.today || []).forEach(d => { t += '<tr><td class="l">' + d.name + ' (' + d.target + ')</td><td class="l"><span class="pill ' + (d.side === 'long' ? 'on' : 'cold') + '">' + d.side + '</span></td><td>' + (d.weight >= 0 ? '+' : '') + f(d.weight, 2) + '</td><td>' + d.supporting_rows + '</td><td class="wrap">' + d.indices.join(', ') + '</td><td>' + d.horizons.join(', ') + '</td><td class="l">' + d.first_entry + '</td><td class="l">' + d.expires_about + '</td><td>' + f(d.claimed_cpe, 2) + '</td><td>' + f(d.test_cpe, 2) + ' vs ' + f(d.test_base, 2) + '</td></tr>'; });
+  (Dn.today || []).forEach(d => { t += '<tr><td class="l">' + (d.name.indexOf('(' + d.target + ')') >= 0 ? d.name : d.name + ' (' + d.target + ')') + '</td><td class="l"><span class="pill ' + (d.side === 'long' ? 'on' : 'cold') + '">' + d.side + '</span></td><td>' + (d.weight >= 0 ? '+' : '') + f(d.weight, 2) + '</td><td>' + d.supporting_rows + '</td><td class="wrap">' + d.indices.join(', ') + '</td><td>' + d.horizons.join(', ') + '</td><td class="l">' + d.first_entry + '</td><td class="l">' + d.expires_about + '</td><td>' + f(d.claimed_cpe, 2) + '</td><td>' + f(d.test_cpe, 2) + ' vs ' + f(d.test_base, 2) + '</td></tr>'; });
   if (!(Dn.today || []).length) t += '<tr><td class="l" colspan="10">No frozen condition is active: the paper portfolio is flat.</td></tr>';
   el('dtoday').innerHTML = t;
   el('dnote').innerHTML = 'Weights are equal over the ' + (Dn.today || []).length + ' active target(s); the rows column counts how many frozen rows vote for the position, and they come from ENSO indices that move together, so ten rows are one view, not ten. Horizons are in trading days from entry.';
@@ -127,8 +132,8 @@ cards.appendChild(card('Frozen conditions firing', firing.length ? 'live' : 'non
   const B = Dn.backtest || {}, bc = B.climate && B.climate.curves;
   if (bc) Plotly.newPlot('dBack', [{x:bc.dates, y:bc.strategy, name:'Climate rule (extreme tail)', type:'scatter', mode:'lines', line:{color:'#C8A84A', width:1.5}}, {x:bc.dates, y:bc.hold_same, name:'Same targets, long', type:'scatter', mode:'lines', line:{color:'#7FAAD1', width:1.2}}, {x:bc.dates, y:bc.spy, name:'SPY', type:'scatter', mode:'lines', line:{color:'#5A6A5A', width:1}}],
     merge(BASE, {height:260, xaxis:merge(BASE.xaxis, {tickformat:'%Y'})}), CFG);
-  const row = (lab, e, pf) => e ? '<tr><td class="l">' + lab + '</td><td>' + e.events + '</td><td>' + f(e.hit, 3) + '</td><td>' + f(e.base, 3) + '</td><td>' + pct(e.hit_diff) + '</td><td>' + pct(e.mean_return) + '</td><td>' + pct(e.mean_excess) + '</td><td>' + (e.t_events === null ? '' : f(e.t_events, 1)) + ' / ' + (e.t_year_clustered === null ? '' : f(e.t_year_clustered, 1)) + '</td><td>' + (pf ? pct(pf.strategy_full.ann) + ' (Sharpe ' + f(pf.strategy_full.sharpe, 2) + ')' : '') + '</td><td>' + (pf ? pct(pf.hold_same_full.ann) : '') + '</td></tr>' : '';
-  let b = '<tr><th class="l">Arm</th><th>Events</th><th>Hit</th><th>Base</th><th>Diff</th><th>Mean return</th><th>Excess vs drift</th><th>t (events / by year)</th><th>Rule, annualised</th><th>Same targets long</th></tr>';
+  const row = (lab, e, pf) => e ? '<tr><td class="l">' + lab + '</td><td>' + e.events + '</td><td>' + f(e.hit, 3) + '</td><td>' + f(e.base, 3) + '</td><td>' + pts(e.hit_diff) + '</td><td>' + pct(e.mean_return) + '</td><td>' + pct(e.mean_excess) + '</td><td>' + (e.t_events === null ? '' : f(e.t_events, 1)) + ' / ' + (e.t_year_clustered === null ? '' : f(e.t_year_clustered, 1)) + '</td><td>' + (pf ? pct(pf.strategy_full.ann) + ' (Sharpe ' + f(pf.strategy_full.sharpe, 2) + ')' : '') + '</td><td>' + (pf ? pct(pf.hold_same_full.ann) : '') + '</td></tr>' : '';
+  let b = '<tr><th class="l">Arm</th><th>Events</th><th>Hit</th><th>Base</th><th>Hit minus base</th><th>Mean return</th><th>Excess vs drift</th><th>Excess / SE (entries; by year)</th><th>Rule, annualised</th><th>Same targets long</th></tr>';
   if (B.climate) { const c = B.climate, p = c.portfolio || {};
     b += row('Climate, admitted, extreme tail (q_X &ge; 0.90)', c.extreme, p['extreme tail q_X>=0.9']) + row('Climate, admitted, moderate tail', c.moderate, p['moderate q_X<0.9']) + row('Climate, all admitted', c.admitted, p['all admitted']) + row('Climate, not admitted (control)', c.not_admitted, null); }
   if (B.market) { const c = B.market, p = c.portfolio || {};

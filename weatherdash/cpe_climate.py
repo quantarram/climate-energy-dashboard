@@ -464,6 +464,8 @@ def payload():
     for e in events:
         e["targets"] = sorted(table[(table.X == e["X"]) & (table.tau_past == e["tau_past"]) & (table.q_X == e["q_X"]) & (table.direction == e["direction"])]["Y"].map(lambda y: TARGET_NAMES.get(y, y)).unique())
         e["condition"] = describe(e["X"], int(e["tau_past"]), float(e["q_X"]), e["direction"])
+        scale = int(e["tau_past"]) if e["X"].endswith("_mean") else 1   # show averages, as the watchlist does, not the engine's cumulative sums
+        e["x_move"], e["x_threshold"] = float(e["x_move"]) / scale, float(e["x_threshold"]) / scale
     return {"asof": str(prices.index.max().date()), "enso": enso_state(), "stats": stats, "watch": watch, "frozen": frozen, "events": events}
 
 
