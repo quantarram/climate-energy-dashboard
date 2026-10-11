@@ -1,0 +1,52 @@
+name: Climate signals update
+
+# The climate stage needs no weather forecast, so it is scheduled early: 00:30 UTC = 08:30 SGT.
+# GitHub starts scheduled runs several hours late (observed about 6 to 6.5 h), so this lands in the SGT afternoon
+# (about 14:30 SGT) instead of late at night. The forecast-based archive stage stays in daily.yml, which also repeats
+# the climate stage as a backup.
+on:
+  schedule:
+    - cron: "30 0 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dashboard-pipeline
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Climate stage (indices, prices, entry events, scoring, decision experiment)
+        run: python pipelines/run_daily.py --signals-only
+      - name: Build site
+        if: always()
+        run: python pipelines/build_site.py
+      - name: Commit ledgers and payloads
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/signals.json data/climate_decisions_daily.csv data/cpe_climate/cpe_climate_events*.csv data/cpe_climate/prices*.parquet data/cpe_climate/books.json data/cpe_climate/indices
+          if git diff --cached --quiet; then echo "No changes"; else
+            git commit -m "Climate signals update $(date -u +%Y-%m-%d) [automated]"
+            git pull --rebase origin main
+            git push
+          fi
+      - name: Publish site (force-pushed, no history)
+        if: always()
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
+          force_orphan: true
