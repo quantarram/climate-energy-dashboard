@@ -1,86 +1,60 @@
-# Climate Signals (formerly the Weather Impacts Dashboard)
+# Climate Signals Dashboard (formerly the Weather Impacts Dashboard)
 
-One dashboard, one daily pipeline. The front page (`docs/index.html`) follows only slow, rare climate states, as frozen conditional-exceedance (CPE) rows scored forward.
+**Live: https://quantarram.github.io/weather-impacts-dashboard/**
 
-- **Frozen climate conditions**: four frozen tables (97 conditions) from the CPE engine, with thresholds fixed from data through 2012. Three hold survivors of the engine's filter (43 rows on ONI, Nino 3.4, SOI, AO, NAO and PDO; 181 rows on the Nino regions, MEI, tropical Atlantic, PNA and the Southern Annular Mode; 38 rows on regional drought, Pacific modes, global temperature and snow cover); the fourth is a watch tier of 44 distinct non-ENSO rows with weaker evidence. The page shows where each condition stands against its threshold, an event log, and a live record scored only on what happens after the freeze (`data/cpe_climate/`, `weatherdash/cpe_climate.py`).
-- **Registered decision experiment**: the strong-evidence conditions are converted into implied paper positions by one fixed rule, registered before scoring and scored from 12 October 2026 against holding the same targets and SPY, with reviews at 125, 250 and 500 trading days (`weatherdash/climate_decisions.py`). The same rule on rows admitted causally in the past shows no historical edge, so the live record is the test.
-- **Archive** (`docs/archive.html`): the daily weather-to-demand, wind and solar, crop-stress, gas-burn and storage panels, kept because a second registered live experiment (`data/decision_registry.json`) is still being scored. Free weather forecasts were tested against prices and carry no signal; see the paper.
+A daily-updated, self-scoring record of rare, slow climate conditions and what happens to markets after they fire. Each condition is a conditional-exceedance (CPE) row: *when this climate series is in its extreme tail, how often does that market follow into its own tail over the next N days?* Every condition is frozen in advance with its threshold fixed from data through 2012, logged the day it first fires, and scored only on what happens afterwards.
 
-**The research behind it:** *Why Everyday Weather Does Not Move Markets, and Where Rare Extremes Might* (Paper 17): [paper on Zenodo](https://zenodo.org/records/23301263), [Substack post](https://arunramanathans.substack.com/p/why-everyday-weather-does-not-move), code and research scripts in [quant-regime-research](https://github.com/quantarram/quant-regime-research) (`notebooks/weather_finance/`).
+This is the live counterpart of **Paper 17**, *Why Everyday Weather Does Not Move Markets, and Where Rare Extremes Might* ([Zenodo](https://zenodo.org/records/23301263), [Substack](https://arunramanathans.substack.com/p/why-everyday-weather-does-not-move)). The paper's result is a candidate, not a finding: rare extreme tails showed persistence only inside the CPE framework's own selection rules, on few episodes, and a simple trading rule on them lost money in the causal backtest. This dashboard collects the forward evidence. Code and research scripts: [quant-regime-research](https://github.com/quantarram/quant-regime-research) (`notebooks/weather_finance/`).
 
-`python pipelines/run_daily.py` runs stage 1 (signals, no weather forecast needed) and then stage 2 (the archive below). `--signals-only` runs stage 1 alone; `python pipelines/build_site.py` builds both pages.
+## What the front page shows
+- **Climate state now**: the Oceanic Nino Index and the Nino 3.4 anomaly.
+- **Frozen conditions**: four tables, 97 conditions in all, each with where the series stands against its threshold, an event log, and a live record of resolved and pending outcomes.
+- **Registered decision experiment**: the strong-evidence conditions turned into implied paper positions by one fixed rule, scored daily against holding the same targets and SPY.
+- **A backtest panel** with the causal walk-forward of the same rule (no historical edge).
 
-## The archive pipeline
+## The four frozen tables
+| Table | Rows | Conditions | Series | Frozen | Role |
+|---|---|---|---|---|---|
+| Batch 1 | 43 | 7 | ONI, Nino 3.4, SOI, Arctic, North Atlantic and Pacific Decadal oscillations | 2026-10-10 | survivors; in the decision rule |
+| Batch 3 | 181 | 41 | Nino 1+2/3/4, MEI v2, tropical Atlantic, Atlantic warm pool, PNA, Southern Annular Mode | 2026-10-11 | survivors; in the decision rule |
+| Batch 4 | 38 | 22 | regional drought (Delta, Southeast, Texas, northern plains, West), Trans-Nino, North Pacific Gyre Oscillation, global temperature, snow cover | 2026-10-11 | survivors; in the decision rule |
+| Batch 5 | 44 | 27 | 14 non-ENSO predictor families | 2026-10-12 | watch tier, weaker evidence; condition ledger only |
 
-A daily-updated, self-scoring record of how forecast weather translates into electricity demand and
-wind and solar generation (pilot: six US grid regions), plus a crop-stress layer for the US corn and soybean states.
+Tables from weekly freezes (b6, b7, ...) are listed in `data/cpe_climate/books.json`. Most rows are ENSO indices that move together, so they are one ocean state restated, not independent findings; the page says so next to each table.
 
-Every day (08:30 UTC, after the ECMWF 00z open-data cycle is published) a GitHub Action:
+## How a condition is scored
+A condition fires on the first day its series crosses its frozen threshold (conditions already beyond it at the freeze are logged once as "ongoing"). Each firing opens an outcome for every row of that condition: did the target's forward move over the row's horizon (63 to 300 days) land beyond its frozen threshold in the stated direction? The page reports the claimed probability (formation), the realised hit rate and both base rates. Horizons are in rows of the price calendar, which counts every day. No significance test is used; overlapping horizons are valid samples.
 
-1. reads the **IFS 2 m temperature, 100 m wind and surface solar radiation forecasts** for each region's load centres and generation areas straight from ECMWF's
-   open-data mirror, **in memory** (index files give byte ranges, so only the needed fields are fetched;
-   nothing raw is stored),
-2. turns them into population-weighted regional temperature and heating/cooling degree days (a **demand forecast
-   next to the demand that climatology would imply**: the demand at the average temperature for that calendar date
-   over 1996-2025, 30 years) and into **wind and solar generation forecasts** through learned weather-to-output
-   maps, each next to the generation climatology would give (average wind and sunshine for that date over
-   2015-2025, 11 years),
-3. turns 2 m temperature, dew point, rainfall and daily maximum temperature at ten US crop states into weekly
-   **heat-stress, vapour-pressure-deficit and rainfall drivers** (vs climatology: 2015-2025 average for that week of the year, 11 seasons) and an expected change in the USDA
-   good+excellent corn/soybean rating,
-4. appends the forecasts to small **ledgers** (`data/ledger_temp_demand.csv`, `data/ledger_wind_solar.csv`, `data/ledger_crops.csv`),
-5. **scores** every forecast whose day has passed against ERA5 weather, EIA-930 demand and wind/solar
-   generation, and USDA NASS weekly crop condition (streamed from the Quick Stats bulk file, no key), with climatology as
-   the baseline,
-6. publishes the dashboard (force-pushed to `gh-pages`, so history does not grow).
+## Registered decision experiment
+Registered 2026-10-11, scored from 2026-10-12 (`weatherdash/climate_decisions.py`, `data/climate_decisions_daily.csv`). Each firing condition votes on its target's direction until its horizon expires; opposite votes cancel; the active targets are held at equal weight, at 10 bp per unit of turnover. Benchmarks are the same targets held long, SPY, and drift-adjusted excess. Reviews come at 125, 250 and 500 trading days, and the verdict rule ("evidence of an edge" or "no evidence of an edge") is fixed in advance. Positions are paper positions, not advice. The weekly tables are outside this rule.
+
+## Daily and weekly routines
+- **Daily** (08:30 UTC, `pipelines/run_daily.py`): refreshes the climate indices and prices, logs new entry events, scores resolved outcomes and rebuilds the page. `python pipelines/daily_summary.py` prints what changed since the previous day.
+- **Weekly**: new, distinct conditions are frozen by a fixed rule (`FREEZE_RULES.md`; script `weekly_freeze.py` in the research repo). Most weeks may freeze nothing.
 
 ## Data and licences
-- Forecasts: ECMWF open data (IFS, 0.25 deg), CC-BY-4.0. Contains ECMWF open data.
-- Observed temperature: ERA5 reanalysis (Copernicus) via Open-Meteo, CC-BY-4.0.
-- Demand and generation: U.S. EIA Form 930 hourly grid data (public).
-- Crop condition: USDA NASS Quick Stats (public).
+- Climate indices: NOAA Climate Prediction Center and Physical Sciences Laboratory (ONI, Nino regions, SOI, AO, NAO, PDO, MEI v2, TNA, TSA, warm pool, PNA, AAO, TNI, NPGO).
+- Drought: NOAA NCEI nClimDiv state Palmer Drought Severity Index. Global temperature: NASA GISS GISTEMP v4. Snow cover: Rutgers Global Snow Lab.
+- Prices: Yahoo Finance public chart data (small stores in `data/cpe_climate/`).
+- Contains ECMWF open data (CC-BY-4.0) only in the archive panels.
 
 ## Layout
 ```
-weatherdash/cpe_climate.py    frozen climate signal ledger: indices, watchlist, onset events, forward scoring
-weatherdash/signals_page.py   front page builder (data/signals.json)
-weatherdash/fetch.py      byte-range fetch from the ECMWF mirrors (retry + mirror fallback)
-weatherdash/grib.py       in-memory GRIB decode + bilinear point sampling
-weatherdash/regions.py    pilot regions, load centres, approximate population weights
-weatherdash/demand.py     temperature -> daily demand model (degree days, day of week, trend)
-weatherdash/forecast.py   forecast -> regional temperature, degree days, demand, wind and solar vs climatology
-weatherdash/renewables.py learned wind power curve (hat basis) and solar map, capacity-growth term
-weatherdash/crops.py      state points, weekly heat/VPD/rain drivers
-weatherdash/nass.py       USDA NASS weekly condition from the Quick Stats bulk file
-weatherdash/ledger.py     forecast ledger and verification vs climatology
-weatherdash/exposure.py   physical exposure: gas burned in power plants, regional gas storage, power-price sensitivity (scored vs EIA)
-weatherdash/decisions.py  the live hypothesis test: frozen decision rules, scored against flat, hold and climatology-only twins
-weatherdash/prices.py     daily closes for the experiment (Yahoo public chart endpoint, small log)
-weatherdash/dashboard.py  single-page dashboard
-pipelines/fit_demand_model.py   one-off demand model fit (2023-2025 train, 2026 holdout)
-pipelines/fit_renewables.py     one-off wind/solar fit (site weights learned from EIA output)
-pipelines/fit_crops.py          one-off crop-condition model (ten-state average, leave-one-year-out)
-pipelines/fit_exposure.py       one-off fit of the gas-burn, storage and power-price models
-pipelines/backfill_exposure.py  derive the exposure ledgers from the forecast ledgers
-pipelines/run_daily.py          the daily job
-pipelines/backfill.sh           score archived past forecasts
+weatherdash/cpe_climate.py        frozen-condition ledger: index parsers, watchlist, entry events, forward scoring, tables (books)
+weatherdash/climate_decisions.py  the registered decision experiment
+weatherdash/signals_page.py       the front page (data/signals.json)
+weatherdash/prices.py             Yahoo chart fetcher
+pipelines/run_daily.py            the daily job (climate stage first, then the archive stage)
+pipelines/build_site.py           builds docs/index.html and docs/archive.html
+pipelines/daily_summary.py        what changed since yesterday
+data/cpe_climate/                 frozen tables, price stores, event logs, index files, books.json, backtest export
+data/signals.json                 page payload; data/climate_decisions_daily.csv paper-portfolio returns
+FREEZE_RULES.md                   the daily and weekly routines and the freeze rule
+ARCHIVE.md                        the earlier daily weather-forecast panels (modules, pipeline, limits)
 ```
 
-## Exposure panels and the live experiment
-Three panels translate the forecasts into physical exposure and score them: gas-fired generation by region (EIA-930), the expected weekly change in
-regional gas storage against the five-year norm (EIA weekly report), and the weather-driven premium in next-day power prices (an estimate, not scored).
-A fourth section runs a **registered experiment**: decisions from the forecast signals, with rules, instruments, costs and the criterion for "evidence of an edge" frozen in
-`data/decision_registry.json` on 2026-10-11 and scored from 2026-10-12 against holding nothing, holding the same instruments, and the same decisions driven by climatology alone.
-The hypothesis is that free weather forecasts alone give no edge; the experiment can falsify it. A null result is not proof that no edge exists anywhere.
-
 ## Scope and limits
-Pilot only: six US balancing authorities. Regional temperature is a
-population-weighted point sample (approximate weights); the demand model has no holiday, humidity or
-behind-the-meter solar terms. Wind and solar levels are re-anchored each day to the last 28 days of observed output (the learned maps
-drift as capacity is added); correlation with observed output is untouched. Crop layer: corn and soybean ratings run
-about June to mid-September, so the rating outlook is off outside the season while the weather drivers run all year;
-weekly condition change is a noisy target, so it is modelled for the ten-state average. Next: soil moisture, winter
-wheat and non-US regions. Research record, not an operational or trading tool.
+Research record, not advice and not a trading tool. The conditions rest on few independent episodes: a rare climate state is a handful of occurrences in four decades, so forward results accrue slowly (the first outcomes resolve about 2026-12-12, most through 2027) and a few resolved outcomes cannot separate a real edge from luck. Survivor tables were selected using test-period results, so their test scores are upward-biased; only the live record is free of that. The weather-forecast archive is in [ARCHIVE.md](ARCHIVE.md).
 
 ## Citation
 
