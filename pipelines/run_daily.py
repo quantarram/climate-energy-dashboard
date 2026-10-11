@@ -1,5 +1,9 @@
 """
-Daily run (after the ECMWF 00z open-data cycle is published, ~07:35 UTC):
+The one daily pipeline (run after the ECMWF 00z open-data cycle is published, ~07:35 UTC).
+
+  Stage 1, signals (needs no weather forecast, never blocked by a forecast outage): refresh the NOAA climate indices, extend the price calendar, log new entry events for the frozen climate
+  signals, update the shock-monitor prices, and write data/signals.json for the front page.
+  Stage 2, archive (daily weather panels, still scored for the registered experiment):
   1. fetch the IFS 2 m temperature forecast for the pilot load centres (in memory, nothing raw is stored)
   2. regional temperature -> degree days -> demand forecast vs climatology
   3. append to the forecast ledger, score whatever has matured, write the dashboard payload
@@ -32,8 +36,36 @@ def latest_available_date(now):
     raise RuntimeError("no recent IFS 00z cycle found")
 
 
+def signals_stage():
+    """Frozen climate signals and the shock monitor. Every step is isolated: a failure keeps the last stored data and the page still builds."""
+    from weatherdash import cpe_climate, shocks, signals_page
+    try:
+        table = pd.read_parquet(cpe_climate.TABLE_PATH)
+        cpe_climate.fetch_indices(sorted({x.rsplit("_", 1)[0] for x in table["X"]}))
+        _, failed = cpe_climate.update_prices()
+        if failed:
+            print("climate-ledger price fetch incomplete:", failed)
+        cpe_climate.log_new_events()
+    except Exception as e:  # noqa: BLE001
+        print(f"climate ledger step failed: {type(e).__name__}: {str(e)[:150]}")
+    try:
+        _, failed = shocks.update_prices()
+        if failed:
+            print("shock-monitor price fetch incomplete:", failed)
+    except Exception as e:  # noqa: BLE001
+        print(f"shock prices failed: {type(e).__name__}: {str(e)[:150]}")
+    try:
+        payload = signals_page.assemble()
+        json.dump(payload, open(os.path.join(ROOT, "data", "signals.json"), "w"), default=float)
+        print(f"signals payload written: {len(payload['cpe']['watch'])} watched conditions, {sum(1 for w in payload['cpe']['watch'] if w['firing'])} firing, {len(payload['shocks']['gauges'])} gauges")
+    except Exception as e:  # noqa: BLE001
+        print(f"signals payload failed (keeping the previous one): {type(e).__name__}: {str(e)[:150]}")
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--signals-only", action="store_true", help="run stage 1 only")
+    ap.add_argument("--no-signals", action="store_true", help="skip stage 1")
     ap.add_argument("--date")
     ap.add_argument("--backfill", action="store_true")
     ap.add_argument("--no-score", action="store_true")
@@ -41,6 +73,10 @@ def main():
     ap.add_argument("--renewables-only", action="store_true", help="backfill the wind/solar ledger only")
     ap.add_argument("--crops-only", action="store_true", help="backfill the crop-stress ledger only")
     args = ap.parse_args()
+    if not args.no_signals:
+        signals_stage()
+    if args.signals_only:
+        return
     now = datetime.now(timezone.utc)
     date = args.date or latest_available_date(now)
     src = "backfill" if args.backfill else "live"

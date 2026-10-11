@@ -6,7 +6,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Weather Impacts Dashboard</title>
+<title>Archive: daily weather panels</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -41,10 +41,10 @@ th:first-child,td:first-child{text-align:left}th{color:var(--text2);font-weight:
 .note{font-size:12px;color:var(--text2);margin-top:12px;line-height:1.7}.table-wrap{overflow-x:auto}
 footer{padding:24px var(--pad) 40px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--text3);line-height:1.8}
 </style></head><body>
-<header><div><div class="h-title">Weather Impacts Dashboard</div>
-<div class="h-sub">Energy demand, wind and solar, and crop stress from forecast weather, scored against what happened</div></div><div class="h-meta" id="hmeta"></div></header>
+<header><div><div class="h-title">Archive: daily weather panels</div>
+<div class="h-sub">Energy demand, wind and solar, crop stress, gas burn and storage from forecast weather, scored against what happened &middot; <a href="index.html" style="color:var(--accent2)">&larr; back to the signals page</a></div></div><div class="h-meta" id="hmeta"></div></header>
 <main>
-<div class="banner"><b>Pilot: US energy and crops.</b> Each day the ECMWF 00z forecast is turned into regional temperature, degree days and
+<div class="banner"><b>Why this is an archive.</b> The research found no price signal in day-to-day weather: markets already price the public forecasts. These panels stay because they are physically correct and because the registered live experiment below is still being scored. The signals that matter are on the <a href="index.html" style="color:var(--accent2)">front page</a>.<br><br><b>Pilot: US energy and crops.</b> Each day the ECMWF 00z forecast is turned into regional temperature, degree days and
 electricity demand for six US grid regions, next to the demand that climatology would imply (the demand at the average temperature for that calendar date over __CD__). Every forecast is logged and scored against
 observed temperature and demand once they are known, with climatology as the baseline. Wind and solar generation for the same regions, and crop stress for the US corn and soybean states, follow below.</div>
 <div class="cards" id="cards"></div>
@@ -366,7 +366,7 @@ document.getElementById('vnote').innerHTML =
 
 def build(latest_path=None, out_path=None):
     latest_path = latest_path or os.path.join(ROOT, "data", "latest.json")
-    out_path = out_path or os.path.join(ROOT, "docs", "index.html")
+    out_path = out_path or os.path.join(ROOT, "docs", "archive.html")
     data = open(latest_path).read()
     cl = json.loads(data).get("climatology", {})
     dash = "\u2013"
