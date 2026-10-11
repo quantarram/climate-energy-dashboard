@@ -17,6 +17,7 @@ every other index the 15th of month m+1). Y closes live in data/cpe_climate/pric
 """
 import argparse
 import hashlib
+import json
 import os
 import re
 import sys
@@ -48,6 +49,11 @@ BOOKS = {
            "note": "Watch tier: weaker evidence (three formation and two test episodes are enough). One row per predictor family, target and direction, ENSO family excluded (already frozen in 224 rows). "
                    "Scored as a condition and outcome ledger only; it is not part of the registered decision rule."},
 }
+# Tables frozen later (the weekly watch-tier freezes) are listed in data/cpe_climate/books.json, so adding one needs no code change.
+if os.path.exists(os.path.join(HERE, "books.json")):
+    for _b in json.load(open(os.path.join(HERE, "books.json"))):
+        BOOKS[_b["id"]] = {"label": _b["label"], "table": _b["table"], "events": _b["events"], "prices": _b["prices"], "frozen": _b["frozen"],
+                           "decisions": _b.get("decisions", False), "note": _b.get("note", "")}
 BOOK = "b1"
 
 
@@ -381,7 +387,7 @@ def live_stats(rows=None, last_bar=None, ev=None):
         row = {"horizon": int(tf), "n_pending": int(len(g) - len(r)), "n": int(len(r))}
         pend = g[~g["resolved"]]
         if len(pend):
-            est = pend["entry_date"] + pd.to_timedelta((pend["tau_future"] * 1.4).round().astype(int), unit="D")
+            est = pend["entry_date"] + pd.to_timedelta((pend["tau_future"] * (1.0 if int(pd.read_parquet(PRICES_PATH).index[-400:].dayofweek.nunique()) == 7 else 1.4)).round().astype(int), unit="D")   # rows are calendar days on the seven-day price calendar
             row["first_pending"] = str(est.min().date())
         if len(r):
             row.update({"claimed": round(float(r["CPE"].mean()), 4), "hit": round(float(r["event"].mean()), 4), "base": round(float(r["uncond_prob"].mean()), 4),
