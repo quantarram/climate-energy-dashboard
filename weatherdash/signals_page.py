@@ -55,8 +55,7 @@ footer a{color:var(--text2)}
 <nav><a href="#state">Climate state</a><a href="#decisions">Registered decisions</a><a href="#books">Frozen signals and live record</a><a href="archive.html">Archive: daily weather panels</a></nav>
 <main>
 <div class="banner"><b>What this page tracks, and why only this.</b> The research behind it tested free weather forecasts against prices for gas, power, crops and energy equities, from daily rules to machine-learning models, and found no
-edge: markets already price what the public forecasts say, and day-to-day weather moves prices far less than their own noise. What did hold up out of sample is rare, severe and slow: strong ocean-climate states (El Ni&ntilde;o above all).
-This page follows only that, as conditional-exceedance (CPE) rows. Every signal in the table was frozen on <b id="frz"></b> from data through 2012 and is scored forward only. The daily weather-to-demand panels, which are
+edge: markets already price what the public forecasts say, and day-to-day weather moves prices far less than their own noise. What persisted in causal tests was confined to the rare, extreme tail of slow climate states (El Ni&ntilde;o above all) and to the CPE framework&rsquo;s own admission rules, on few episodes and without a positive return in a simple rule; it is a candidate, not a result. This page follows only that, as frozen CPE rows scored forward. Every signal in the table was frozen on <b id="frz"></b> from data through 2012 and is scored forward only. The daily weather-to-demand panels, which are
 still scored for the registered experiment, are on the <a href="archive.html">archive page</a>.</div>
 
 <section id="state"><div class="s-title">Climate state now</div>
