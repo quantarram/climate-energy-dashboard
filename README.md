@@ -39,13 +39,25 @@ weatherdash/renewables.py learned wind power curve (hat basis) and solar map, ca
 weatherdash/crops.py      state points, weekly heat/VPD/rain drivers
 weatherdash/nass.py       USDA NASS weekly condition from the Quick Stats bulk file
 weatherdash/ledger.py     forecast ledger and verification vs climatology
+weatherdash/exposure.py   physical exposure: gas burned in power plants, regional gas storage, power-price sensitivity (scored vs EIA)
+weatherdash/decisions.py  the live hypothesis test: frozen decision rules, scored against flat, hold and climatology-only twins
+weatherdash/prices.py     daily closes for the experiment (Yahoo public chart endpoint, small log)
 weatherdash/dashboard.py  single-page dashboard
 pipelines/fit_demand_model.py   one-off demand model fit (2023-2025 train, 2026 holdout)
 pipelines/fit_renewables.py     one-off wind/solar fit (site weights learned from EIA output)
 pipelines/fit_crops.py          one-off crop-condition model (ten-state average, leave-one-year-out)
+pipelines/fit_exposure.py       one-off fit of the gas-burn, storage and power-price models
+pipelines/backfill_exposure.py  derive the exposure ledgers from the forecast ledgers
 pipelines/run_daily.py          the daily job
 pipelines/backfill.sh           score archived past forecasts
 ```
+
+## Exposure panels and the live experiment
+Three panels translate the forecasts into physical exposure and score them: gas-fired generation by region (EIA-930), the expected weekly change in
+regional gas storage against the five-year norm (EIA weekly report), and the weather-driven premium in next-day power prices (an estimate, not scored).
+A fourth section runs a **registered experiment**: decisions from the forecast signals, with rules, instruments, costs and the criterion for "evidence of an edge" frozen in
+`data/decision_registry.json` on 2026-10-11 and scored from 2026-10-12 against holding nothing, holding the same instruments, and the same decisions driven by climatology alone.
+The hypothesis is that free weather forecasts alone give no edge; the experiment can falsify it. A null result is not proof that no edge exists anywhere.
 
 ## Scope and limits
 Pilot only: six US balancing authorities. Regional temperature is a

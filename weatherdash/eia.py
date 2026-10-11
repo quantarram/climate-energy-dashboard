@@ -15,7 +15,19 @@ def six_month_files(years):
     return [f"EIA930_BALANCE_{y}_{h}" for y in years for h in ("Jan_Jun", "Jul_Dec")]
 
 
+_CACHE = {}
+
+
 def _download(name, tries=5):
+    if name in _CACHE:
+        return _CACHE[name]
+    out = _download_uncached(name, tries)
+    _CACHE.clear()  # keep only the most recent file: they are 40+ MB each
+    _CACHE[name] = out
+    return out
+
+
+def _download_uncached(name, tries=5):
     url = f"{BASE}/{name}.csv"
     for a in range(tries):
         try:
@@ -68,3 +80,22 @@ def daily_generation(name, bas):
         g["resource"] = res
         out.append(g.rename(columns={"Balancing Authority": "ba", "sum": "gen_mwh"})[["ba", "resource", "date", "gen_mwh"]])
     return pd.concat(out)
+
+
+GAS_COLS = ["Net Generation (MW) from Natural Gas (Adjusted)", "Net Generation (MW) from Natural Gas"]
+
+
+def daily_gas(name, bas):
+    """Daily gas-fired generation (MWh) per BA for one six-month file (local data date, 23-25 valid hours)."""
+    raw = _download(name)
+    wanted = set(GAS_COLS) | {"Balancing Authority", "Data Date"}
+    df = pd.read_csv(io.BytesIO(raw), usecols=lambda c: c in wanted, low_memory=False)
+    df = df[df["Balancing Authority"].isin(bas)].copy()
+    df["date"] = pd.to_datetime(df["Data Date"], format="%m/%d/%Y")
+    v = pd.to_numeric(df[GAS_COLS[1]], errors="coerce") if GAS_COLS[1] in df else pd.Series(float("nan"), index=df.index)
+    if GAS_COLS[0] in df:
+        v = pd.to_numeric(df[GAS_COLS[0]], errors="coerce").where(lambda x: x.notna(), v)
+    df["v"] = v
+    g = df.groupby(["Balancing Authority", "date"])["v"].agg(["sum", "count"]).reset_index()
+    g = g[(g["count"] >= 23) & (g["count"] <= 25)]
+    return g.rename(columns={"Balancing Authority": "ba", "sum": "gas_mwh"})[["ba", "date", "gas_mwh"]]

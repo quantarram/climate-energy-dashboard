@@ -17,7 +17,7 @@ import pandas as pd
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from weatherdash import fetch, forecast, ledger, truth  # noqa: E402
+from weatherdash import decisions, exposure, fetch, forecast, ledger, prices, truth  # noqa: E402
 
 
 def latest_available_date(now):
@@ -57,6 +57,20 @@ def main():
         cdf = forecast.run_crops(date, 0, workers=args.workers)
         cn = ledger.cappend(cdf, source=src)
         print(f"IFS {date} 00z: {len(cdf)} crop-stress rows, {cn} new in ledger")
+    # physical-exposure ledgers (gas burn, storage) derive from the ledgers above; prices feed the gas-burn model and the live decision experiment
+    try:
+        pw_log, failed = prices.update(decisions.INSTRUMENTS + [decisions.CONTROL], "3mo")
+        if failed:
+            print("price fetch incomplete:", failed)
+    except Exception as e:  # noqa: BLE001
+        print(f"price log update failed: {type(e).__name__}: {str(e)[:100]}")
+    pw = prices.wide() if os.path.exists(prices.LOG) else None
+    chg = None
+    try:
+        n_new, chg = exposure.append_issue(pd.Timestamp(date).strftime("%Y-%m-%d"), pw, src)
+        print(f"exposure ledgers: {n_new['burn']} new gas-burn rows, {n_new['storage']} new storage rows")
+    except Exception as e:  # noqa: BLE001
+        print(f"exposure ledgers skipped: {type(e).__name__}: {str(e)[:120]}")
     if args.backfill:
         return
     if not args.no_score:
@@ -71,6 +85,23 @@ def main():
                 print("scored", fn(), label)
             except Exception as e:  # noqa: BLE001
                 print(f"scoring deferred for {label}: {type(e).__name__}: {str(e)[:120]}")
+    try:
+        print("scored", exposure.burn_score(), "gas-burn rows")
+        if chg is not None:
+            print("scored", exposure.storage_score(chg), "storage rows")
+    except Exception as e:  # noqa: BLE001
+        print(f"exposure scoring deferred: {type(e).__name__}: {str(e)[:120]}")
+    expo = dec = None
+    try:
+        expo = exposure.payload(pd.Timestamp(date).strftime("%Y-%m-%d"), chg, pw)
+    except Exception as e:  # noqa: BLE001
+        print(f"exposure payload skipped: {type(e).__name__}: {str(e)[:120]}")
+    try:
+        sig = decisions.history_from_ledgers(ledger.load(), ledger.rload())
+        decisions.save_signals(sig)
+        dec = decisions.summarise(decisions.score(sig, pw)) if pw is not None else decisions.summarise(None)
+    except Exception as e:  # noqa: BLE001
+        print(f"decision experiment skipped: {type(e).__name__}: {str(e)[:120]}")
     renew_model = forecast.load_renewables()["models"]
     crop_model = forecast.load_crop_model()["models"]
     payload = {
@@ -89,7 +120,11 @@ def main():
             "model": {k: {x: v[x] for x in ("loyo_mae_model", "loyo_mae_clim", "loyo_mae_zero", "loyo_corr", "n_weeks", "seasons",
                                             "holdout_2026", "coef_std")} for k, v in crop_model.items()}},
     }
-    json.dump(payload, open(os.path.join(ROOT, "data", "latest.json"), "w"))
+    if expo:
+        payload["exposure"] = expo
+    if dec:
+        payload["decisions"] = dec
+    json.dump(payload, open(os.path.join(ROOT, "data", "latest.json"), "w"), default=float)
     print("wrote data/latest.json")
 
 

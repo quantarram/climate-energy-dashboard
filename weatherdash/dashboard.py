@@ -73,6 +73,18 @@ Solid: forecast weather. Dashed: climatology, the generation under the average w
 <div><div class="c-label">Weekly rainfall (mm): forecast error by lead (MAE)</div><div id="cRain"></div></div>
 <div><div class="c-label">Weekly change in good+excellent rating (points): error vs baselines (MAE)</div><div id="cCond"></div></div></div>
 <div class="table-wrap" id="cvtable"></div><div class="note" id="cnote"></div></section>
+<section id="burn"><div class="s-title">Gas burned in power plants, next 14 days</div>
+<div class="s-sub" id="bsub"></div><div class="charts"><div><div class="c-label">Five modelled regions together, GWh of gas-fired generation per day</div><div id="bTotal"></div></div>
+<div><div class="c-label">Error by lead day (MAPE, %), forecast vs climatology, both anchored to the last four weeks</div><div id="bVerify"></div></div></div>
+<div class="table-wrap" id="btable"></div><div class="note" id="bnote"></div></section>
+<section id="storage"><div class="s-title">Gas storage: expected weekly change in the next EIA reports</div>
+<div class="s-sub" id="ssub"></div><div class="table-wrap" id="stable"></div><div class="table-wrap" id="svtable"></div><div class="note" id="snote"></div></section>
+<section id="price"><div class="s-title">What the forecast weather is worth in power prices</div>
+<div class="s-sub" id="psub"></div><div class="charts"><div><div class="c-label">Weather-driven premium over the climatological price, % of the next-day peak price</div><div id="pChart"></div></div>
+<div class="table-wrap" id="ptable"></div></div><div class="note" id="pnote"></div></section>
+<section id="experiment"><div class="s-title">Live experiment: do free weather forecasts, turned into decisions, make money?</div>
+<div class="s-sub" id="esub"></div><div class="charts"><div><div class="c-label">Cumulative net return (log, after costs): decisions from the forecast vs the same decisions from climatology, holding the same instruments, and the market</div><div id="eChart"></div></div>
+<div class="table-wrap" id="etable"></div></div><div class="note" id="enote"></div><div class="note" id="ereg"></div></section>
 </main>
 <footer>Contains ECMWF open data (IFS), CC-BY-4.0 &middot; Observed temperature: ERA5 (Copernicus) via Open-Meteo, CC-BY-4.0 &middot; Demand: U.S. EIA Form 930<br>
 Research record, not a trading or operational tool.</footer>
@@ -258,6 +270,82 @@ document.getElementById('vnote').innerHTML =
     'The condition model is a ridge regression of the ten-state average week-on-week change in the share rated good or excellent on those drivers and a seasonal term, for ISO weeks 22 to 38 (about June to mid-September). Its skill is estimated by leaving each season out in turn (2015 to 2026), in the table above; the live columns score each issued forecast. Forecast drivers are adjusted for a small measured offset against ERA5 (about 0.5 &deg;C on daily maximum, 0.1 kPa on VPD). ' +
     'Weekly condition change is a noisy target (the ratings are survey-based), so the baselines to beat are the climatological change for that week of the year (the __CC__ average) and no change at all.';
 })();
+// ---- physical exposure panels and the live experiment (added) ----
+(function () {
+  const X = D.exposure, K = D.decisions;
+  const pct = (v, d) => (v === null || v === undefined || isNaN(v)) ? '&ndash;' : (v * 100).toFixed(d === undefined ? 1 : d) + '%';
+  const f1 = (v, d) => (v === null || v === undefined || isNaN(v)) ? '&ndash;' : Number(v).toFixed(d === undefined ? 1 : d);
+  const sg = v => (v >= 0 ? '+' : '') + f1(v);
+  if (X && X.burn) {
+    const B = X.burn, BV = B.verification, rows = B.rows;
+    const dates = [...new Set(rows.map(r => r.valid_date))].sort();
+    const sum = (key) => dates.map(d => rows.filter(r => r.valid_date === d).reduce((a, r) => a + r[key], 0));
+    const lead = dates.map(d => rows.find(r => r.valid_date === d).lead_days);
+    Plotly.newPlot('bTotal', [
+      {x: dates, y: sum('burn_fc_gwh'), name: 'Forecast weather', mode: 'lines+markers', line: {color: '#C9784A', width: 2}, marker: {size: 4}},
+      {x: dates, y: sum('burn_clim_gwh'), name: 'Climatology', mode: 'lines', line: {color: '#7A8F7A', width: 1.5, dash: 'dot'}}],
+      Object.assign({}, BASE, {yaxis: {gridcolor: '#1B1E1B', zeroline: false, ticksuffix: ' GWh', automargin: true}}), CFG);
+    const L = (BV.total_by_lead || []).filter(r => r.n >= 30);
+    if (L.length) Plotly.newPlot('bVerify', [
+      {x: L.map(r => r.lead), y: L.map(r => r.mape_fc), name: 'Forecast weather', mode: 'lines+markers', line: {color: '#C9784A', width: 2}},
+      {x: L.map(r => r.lead), y: L.map(r => r.mape_clim), name: 'Climatology', mode: 'lines', line: {color: '#B5726A', width: 1.8, dash: 'dot'}}],
+      Object.assign({}, BASE, {xaxis: {title: {text: 'lead (days)', font: {size: 9}}, gridcolor: '#1B1E1B'}, yaxis: {gridcolor: '#1B1E1B', zeroline: false, ticksuffix: '%', rangemode: 'tozero'}}), CFG);
+    let last = null; for (const r of L) { if (r.mape_fc <= r.mape_clim) last = r.lead; else break; }
+    document.getElementById('bsub').innerHTML = (BV.n_scored ? BV.n_scored.toLocaleString() + ' region-days scored against EIA-930 gas-fired generation (issued ' + BV.first_issue + ' to ' + BV.last_issue + '). ' : 'Not scored yet. ') +
+      (last !== null ? 'The forecast beats climatology out to about day ' + last + '. ' : '') + 'Net load (demand minus wind minus solar) from the dashboard forecasts is turned into gas-fired generation by a model fitted on 2019&ndash;2025 EIA-930 data.';
+    let t = '<table><tr><th>Region</th><th>Region-days</th><th>Error, forecast</th><th>Error, climatology</th><th>Error with observed net load (model limit, 2022&ndash;25)</th><th></th></tr>';
+    BV.by_region.forEach(r => { const m = (B.model[r.region] || {}); t += '<tr><td>' + LABEL[r.region] + '</td><td>' + r.n.toLocaleString() + '</td><td>' + f1(r.mape_fc) + '%</td><td>' + f1(r.mape_clim) + '%</td><td>' + f1(m.test_mape_model_obs_netload) + '%</td><td>' + (r.modelled ? '' : 'not modelled') + '</td></tr>'; });
+    document.getElementById('btable').innerHTML = t + '</table>';
+    document.getElementById('bnote').innerHTML = 'Forecast and climatology are both re-anchored to each region&rsquo;s gas burn over the last four weeks (known at least a week before the forecast), so a changing generation fleet does not flatter either. Without the anchoring the two are level over this window (' + f1(BV.overall && BV.overall.mape_fc_raw) + '% vs ' + f1(BV.overall && BV.overall.mape_clim_raw) + '% across regions). CAISO is shown but not modelled: its gas fleet has been reshaped by solar and batteries and the 2019&ndash;2025 fit does not describe 2026.';
+  }
+  if (X && X.storage) {
+    const S = X.storage, SV = S.verification;
+    document.getElementById('ssub').innerHTML = 'The regional weekly change in working gas implied by the forecast temperatures, against the average change of the same week in the five previous years (the norm). ' + (SV.n_resolved ? SV.n_resolved + ' forecasts for ' + (SV.by_region[0] ? SV.by_region[0].weeks : 0) + ' report weeks scored against EIA.' : 'Not scored yet.');
+    let t = '<table><tr><th>Region</th><th>Week ending</th><th>Report</th><th>Forecast change</th><th>Five-year norm</th><th>Difference</th></tr>';
+    S.rows.forEach(r => { const d = new Date(r.week_ending + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 6);
+      t += '<tr><td>' + r.label + '</td><td>' + r.week_ending + '</td><td>' + d.toISOString().slice(0, 10) + '</td><td>' + sg(r.chg_fc_bcf) + ' Bcf</td><td>' + sg(r.norm_bcf) + ' Bcf</td><td>' + sg(r.chg_fc_bcf - r.norm_bcf) + ' Bcf</td></tr>'; });
+    document.getElementById('stable').innerHTML = t + '</table>';
+    let v = '<table><tr><th>How it has scored</th><th>Forecasts</th><th>Report weeks</th><th>Error, forecast (MAE)</th><th>Error, five-year norm</th><th>Fitted-model error 2016&ndash;25 (RMSE) vs norm</th></tr>';
+    SV.by_region.forEach(r => { const m = Object.values(S.model).find(x => x.label === r.region) || {}; v += '<tr><td>' + r.region + '</td><td>' + r.n + '</td><td>' + r.weeks + '</td><td>' + f1(r.mae_fc) + ' Bcf</td><td>' + f1(r.mae_norm) + ' Bcf</td><td>' + f1(m.test_rmse_model) + ' vs ' + f1(m.test_rmse_norm) + ' Bcf</td></tr>'; });
+    document.getElementById('svtable').innerHTML = SV.n_resolved ? v + '</table>' : '';
+    document.getElementById('snote').innerHTML = 'East, Midwest and Pacific are the regions where weather dominates the weekly change. South Central, where production, LNG exports and Gulf power burn matter more, is not forecast: weather explains much less of it. The window so far is summer and early autumn, when injections depend least on temperature; winter withdrawals will be the real test.';
+  }
+  if (X && X.price) {
+    const P = X.price, rows = P.rows, hubs = [...new Set(rows.map(r => r.hub))];
+    document.getElementById('psub').innerHTML = 'How much the forecast temperature moves the next-day peak power price relative to the climatological temperature, from the sensitivity of hub prices to degree-days (EIA / ICE data, 2017&ndash;2025). An estimate of exposure, not a price forecast, and not scored: EIA publishes hub prices with a long delay.';
+    Plotly.newPlot('pChart', hubs.map((h, i) => { const q = rows.filter(r => r.hub === h && r.lead_days <= 9);
+      return {x: q.map(r => r.valid_date), y: q.map(r => r.premium_pct), name: h, mode: 'lines+markers', line: {width: 2}, marker: {size: 4}}; }),
+      Object.assign({}, BASE, {yaxis: {gridcolor: '#1B1E1B', zeroline: true, zerolinecolor: '#3A3F3A', ticksuffix: '%', automargin: true}}), CFG);
+    let t = '<table><tr><th>Hub</th><th>+10 cooling degree-days</th><th>+10 heating degree-days</th><th>Mean price</th><th>Next 7 days, mean premium</th></tr>';
+    hubs.forEach(h => { const m = P.model[h] || {}, q = rows.filter(r => r.hub === h && r.lead_days <= 7); const avg = q.reduce((a, r) => a + r.premium_pct, 0) / Math.max(q.length, 1), usd = q.reduce((a, r) => a + r.premium_usd_mwh, 0) / Math.max(q.length, 1);
+      t += '<tr><td>' + h + '</td><td>' + sg(m.pct_per_10cdd, 0) + '%</td><td>' + sg(m.pct_per_10hdd, 0) + '%</td><td>$' + f1(m.mean_price) + '</td><td>' + sg(avg) + '% (' + (usd >= 0 ? '+$' : '&minus;$') + Math.abs(usd).toFixed(1) + ')</td></tr>'; });
+    document.getElementById('ptable').innerHTML = t + '</table>';
+    document.getElementById('pnote').innerHTML = 'ERCOT is not shown: its price archive requires an account or defeats scripted access, so the Texas sensitivity has not been measured. Sensitivities are estimated across all seasons with gas price and calendar controls; some hubs trade thinly next-day.';
+  }
+  if (K) {
+    const st = {collecting: 'collecting evidence', no_evidence_of_edge: 'no evidence of an edge at review', evidence_of_edge: 'evidence of an edge at review'}[K.status] || K.status;
+    document.getElementById('esub').innerHTML = '<b>Registered 2026-10-11, scored from ' + K.registry.first_scored_signal + '.</b> Status: ' + st + ' (' + K.n_days + ' trading days; reviews at ' + K.review_points.join(', ') + '). ' + (K.n_streams_registered || K.n_streams || 0) + ' frozen decision streams: five forecast signals &times; seven instruments &times; two holds &times; two rules, plus the climatology twin.';
+    if (K.curves && K.curves.dates.length > 1) {
+      const c = K.curves;
+      Plotly.newPlot('eChart', [
+        {x: c.dates, y: c.weather, name: 'Forecast-driven decisions', mode: 'lines', line: {color: '#C9784A', width: 2.2}},
+        {x: c.dates, y: c.twin, name: 'Climatology-driven twin', mode: 'lines', line: {color: '#B5726A', width: 1.6, dash: 'dot'}},
+        {x: c.dates, y: c.hold_instruments, name: 'Holding the same instruments', mode: 'lines', line: {color: '#7A8F7A', width: 1.5}},
+        {x: c.dates, y: c.spy, name: 'S&P 500 ETF', mode: 'lines', line: {color: '#5B8DBE', width: 1.2}}],
+        Object.assign({}, BASE, {height: 300, margin: {l: 52, r: 12, t: 50, b: 34}, yaxis: {gridcolor: '#1B1E1B', zeroline: true, zerolinecolor: '#3A3F3A', automargin: true}}), CFG);
+    } else document.getElementById('eChart').innerHTML = '<div class="note">No scored days yet: the first scored signal is ' + K.registry.first_scored_signal + ' and returns arrive the next trading day.</div>';
+    let t = '<table><tr><th></th><th>Days</th><th>Annualised return</th><th>Volatility</th><th>Sharpe</th><th>Beta to SPY</th><th>Alpha (mean-diff)</th><th>First half / second half</th></tr>';
+    const names = {weather: 'Forecast-driven decisions (equal weight)', twin: 'Climatology-driven twin', hold_instruments: 'Hold the same instruments', spy: 'S&P 500 ETF (control)', flat: 'Flat (no position)'};
+    Object.keys(names).forEach(k => { const s = (K.families || {})[k]; if (!s || !s.ann_return && s.ann_return !== 0) return;
+      t += '<tr><td>' + names[k] + '</td><td>' + s.n_days + '</td><td>' + pct(s.ann_return) + '</td><td>' + pct(s.ann_vol) + '</td><td>' + f1(s.sharpe, 2) + '</td><td>' + f1(s.beta, 2) + '</td><td>' + pct(s.alpha_md_ann) + '</td><td>' + pct(s.first_half) + ' / ' + pct(s.second_half) + '</td></tr>'; });
+    document.getElementById('etable').innerHTML = t + '</table>';
+    const z = K.latest_z || {};
+    document.getElementById('enote').innerHTML = '<b>Today&rsquo;s signals</b> (standardised, issue ' + (K.latest_issue || '') + '; |z| above 0.5 means a position): ' + Object.keys(z).map(k => k + ' ' + (z[k] === null ? '&ndash;' : sg(z[k], 2))).join(' &middot; ') + '. ' +
+      '<br><b>Hypothesis.</b> ' + K.registry.hypothesis + ' <b>What counts as evidence of an edge.</b> ' + K.registry.evidence_of_edge;
+    document.getElementById('ereg').innerHTML = '<b>Frozen rules.</b> ' + K.registry.timing + ' Orientation is fixed in advance: more weather-driven demand, or tighter net load, means long. Standardisation: ' + K.registry.standardisation + ' Costs ' + (K.registry.cost_per_side * 1e4).toFixed(0) + ' bp per side. ' + K.registry.mechanics_check + ' ' + K.registry.not_claimed;
+  }
+})();
+
 // Plotly sizes each chart to its container when it is created. The first charts are created while the page is still
 // short and the grid has not settled (no scrollbar yet), so they come out too wide and spill into their neighbours.
 // Resize every chart once layout is final, and again whenever the page or a grid changes size.
