@@ -1,7 +1,7 @@
 """Registered decision experiment: what the frozen climate conditions imply, and what that earns.
 
 The rule (frozen 2026-10-11, scored from 2026-10-12; nothing below changes after that date):
-  * every entry event of every frozen table opens a vote on (target, direction) for each row of its condition, from the next row of the price calendar until that row's horizon expires;
+  * every entry event of the frozen tables registered with the rule (batches 1, 3 and 4; the watch-tier table of 2026-10-12 is a condition ledger only and is outside the rule) opens a vote on (target, direction) for each row of its condition, from the next row of the price calendar until that row's horizon expires;
   * one vote per (target, direction); opposite votes on a target cancel; equal weight 1/N over the N targets with a nonzero vote; positions are recomputed daily from the event logs;
   * cost 10 bp per unit of one-way turnover; log returns; weekend rows are rolled into the next weekday, so 252 trading days make a year.
 Benchmarks: the same targets held long at the same equal weights over the same windows (same-instrument buy and hold), SPY, and the drift-adjusted excess (each position's return minus the target's own mean daily return
@@ -44,7 +44,9 @@ def _spy():
 def _inputs():
     """Union price panel (all books share one calendar) and, per book, the table and events."""
     books, panels = [], []
-    for bid in cc.BOOKS:
+    for bid, b in cc.BOOKS.items():
+        if not b.get("decisions", True):
+            continue   # the registered rule covers the books frozen before it was registered; later books are condition ledgers only
         cc.use(bid)
         prices_b, table = cc.load_inputs()
         books.append((bid, table, cc.load_events()))

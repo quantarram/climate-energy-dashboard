@@ -64,7 +64,7 @@ still scored for the registered experiment, are on the <a href="archive.html">ar
 <div class="note">Above +0.5 &deg;C is El Ni&ntilde;o, above +1.5 &deg;C strong; below &minus;0.5 &deg;C is La Ni&ntilde;a. The ONI is published about ten days into the second month after its window, so the latest value describes the three months to the end of last month.</div></section>
 
 <section id="decisions"><div class="s-title">Registered decisions: what the frozen conditions imply, and what that earns</div>
-<div class="s-sub">The frozen climate conditions below are turned into paper positions by one fixed rule, registered before any result and scored from the first trading day after the freeze. These are implied positions in a research experiment, not advice.
+<div class="s-sub">The frozen climate conditions below are turned into paper positions by one fixed rule, registered before any result and scored from the first trading day after the freeze. These are implied positions in a research experiment, not advice. The rule covers the three tables frozen with it (batches 1, 3 and 4); batch 5 is a condition ledger and does not vote.
 The same rule run on rows admitted causally in the past shows no historical edge (see the backtest below), so the live record is the test.</div>
 <div class="c-label">Implied positions from the next trading day</div><div class="table-wrap"><table id="dtoday"></table></div>
 <div class="note" id="dnote"></div>
@@ -151,7 +151,7 @@ BK.forEach(C => {
   box.innerHTML =
     '<section id="watch-' + id + '"><div class="s-title">' + C.label + ': where each condition stands</div>' +
     '<div class="s-sub">Frozen ' + C.frozen_on + ', thresholds from formation data through 2012. A condition fires when its slow climate series crosses the threshold; the targets then have the stated horizons to resolve. ' +
-    '&ldquo;Test&rdquo; is how the same rows scored against the base rate in 2013&ndash;2026, before the freeze.</div>' +
+    '&ldquo;Test&rdquo; is how the same rows scored against the base rate in 2013&ndash;2026, before the freeze.' + (C.note ? ' <b>' + C.note + '</b>' : '') + '</div>' +
     '<div class="note" id="wlead-' + id + '" style="margin:0 0 6px"></div><div class="table-wrap"><table id="wtable-' + id + '"></table></div>' +
     '<details id="wall-' + id + '"><summary>All ' + C.watch.length + ' conditions</summary><div class="table-wrap"><table id="wfull-' + id + '"></table></div></details>' +
     '<div class="note" id="wnote-' + id + '"></div></section>' +

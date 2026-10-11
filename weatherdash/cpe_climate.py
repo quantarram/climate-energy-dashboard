@@ -38,11 +38,15 @@ TABLE_END = pd.Timestamp("2026-10-10")
 # Each frozen table is a "book" with its own events log and price store. Batch 1 (ONI, Nino 3.4, SOI, AO, NAO, PDO) was frozen 2026-10-10; batch 3 (more slow climate states) 2026-10-11.
 # Both survivor filters ran on data through 2026-10-10, so both books score only what happens after that date.
 BOOKS = {
-    "b1": {"label": "Batch 1: ENSO, Arctic and Atlantic oscillations", "table": "cpe_climate_table.parquet", "events": "cpe_climate_events.csv", "prices": "prices.parquet", "frozen": "2026-10-10"},
+    "b1": {"label": "Batch 1: ENSO, Arctic and Atlantic oscillations", "table": "cpe_climate_table.parquet", "events": "cpe_climate_events.csv", "prices": "prices.parquet", "frozen": "2026-10-10", "decisions": True},
     "b3": {"label": "Batch 3: Nino regions, MEI, tropical Atlantic, PNA, Southern Annular Mode", "table": "cpe_climate_table_b3.parquet", "events": "cpe_climate_events_b3.csv",
-           "prices": "prices_b3.parquet", "frozen": "2026-10-11"},
+           "prices": "prices_b3.parquet", "frozen": "2026-10-11", "decisions": True},
     "b4": {"label": "Batch 4: regional drought, Pacific modes, global temperature, snow cover", "table": "cpe_climate_table_b4.parquet", "events": "cpe_climate_events_b4.csv",
-           "prices": "prices_b4.parquet", "frozen": "2026-10-11"},
+           "prices": "prices_b4.parquet", "frozen": "2026-10-11", "decisions": True},
+    "b5": {"label": "Batch 5: watch tier, distinct non-ENSO conditions", "table": "cpe_climate_table_b5.parquet", "events": "cpe_climate_events_b5.csv",
+           "prices": "prices_b5.parquet", "frozen": "2026-10-12", "decisions": False,
+           "note": "Watch tier: weaker evidence (three formation and two test episodes are enough). One row per predictor family, target and direction, ENSO family excluded (already frozen in 224 rows). "
+                   "Scored as a condition and outcome ledger only; it is not part of the registered decision rule."},
 }
 BOOK = "b1"
 
@@ -74,9 +78,9 @@ URLS = {
 }
 NCEI_DIR = "https://www.ncei.noaa.gov/pub/data/cirs/climdiv/"
 # drought regions (state-mean Palmer Drought Severity Index, NCEI nClimDiv): NCEI state code -> abbreviation
-PDSI_REGIONS = {"HRWPDSI": ["KS", "OK", "NE", "CO", "TX"], "NPLPDSI": ["ND", "SD", "MN", "MT"], "DLTPDSI": ["AR", "LA", "MS", "TN"], "SEPDSI": ["GA", "FL", "AL", "SC"], "TXPDSI": ["TX"],
+PDSI_REGIONS = {"CBPDSI": ["IL", "IN", "IA", "KS", "MN", "MO", "NE", "ND", "OH", "SD"], "HRWPDSI": ["KS", "OK", "NE", "CO", "TX"], "NPLPDSI": ["ND", "SD", "MN", "MT"], "DLTPDSI": ["AR", "LA", "MS", "TN"], "SEPDSI": ["GA", "FL", "AL", "SC"], "TXPDSI": ["TX"],
                 "WSTPDSI": ["CA", "OR", "WA", "ID", "NV", "UT", "AZ"]}
-NCEI_CODE = {"003": "AR", "016": "LA", "022": "MS", "040": "TN", "009": "GA", "008": "FL", "001": "AL", "038": "SC", "041": "TX", "004": "CA", "035": "OR", "045": "WA", "010": "ID", "026": "NV",
+NCEI_CODE = {"011": "IL", "012": "IN", "013": "IA", "023": "MO", "033": "OH", "003": "AR", "016": "LA", "022": "MS", "040": "TN", "009": "GA", "008": "FL", "001": "AL", "038": "SC", "041": "TX", "004": "CA", "035": "OR", "045": "WA", "010": "ID", "026": "NV",
              "042": "UT", "002": "AZ", "014": "KS", "034": "OK", "025": "NE", "005": "CO", "032": "ND", "039": "SD", "021": "MN", "024": "MT"}
 INDEX_FILES = {"ONI": "oni.txt", "NINO34": "sstoi.txt", "AO": "ao.txt", "NAO": "nao.txt", "PDO": "pdo.txt", "SOI": "soi.txt",
                "NINO12": "sstoi.txt", "NINO3": "sstoi.txt", "NINO4": "sstoi.txt", "MEI2": "meiv2.txt", "AAO": "aao.txt", "TNA": "tna.txt", "TSA": "tsa.txt", "WHWP": "whwp.txt", "PNA": "pna.txt",
@@ -422,9 +426,9 @@ INDEX_NAMES = {"ONI": "Oceanic Nino Index", "NINO34": "Nino 3.4 sea-surface anom
                "AAO": "Southern Annular Mode", "TNA": "Tropical North Atlantic sea-surface anomaly", "TSA": "Tropical South Atlantic sea-surface anomaly",
                "WHWP": "Atlantic warm pool", "PNA": "Pacific-North American pattern",
                "HRWPDSI": "Wheat-belt drought index (PDSI)", "NPLPDSI": "Northern-plains drought index (PDSI)", "DLTPDSI": "Mississippi Delta drought index (PDSI)", "SEPDSI": "Southeast drought index (PDSI)",
-               "TXPDSI": "Texas drought index (PDSI)", "WSTPDSI": "Western drought index (PDSI)", "TNI": "Trans-Nino index", "NPGO": "North Pacific Gyre Oscillation",
+               "TXPDSI": "Texas drought index (PDSI)", "CBPDSI": "Corn Belt drought index (PDSI)", "WSTPDSI": "Western drought index (PDSI)", "TNI": "Trans-Nino index", "NPGO": "North Pacific Gyre Oscillation",
                "GLBT": "Global temperature anomaly", "SNOW": "Northern Hemisphere snow-cover anomaly"}
-TARGET_NAMES = {"CC=F": "Cocoa", "LE=F": "Live cattle", "CL=F": "Crude oil", "CT=F": "Cotton", "DBB": "Base metals ETF (DBB)", "DJP": "Broad commodities ETN (DJP)", "HE=F": "Lean hogs", "HO=F": "Heating oil",
+TARGET_NAMES = {"ZL=F": "Soybean oil", "CC=F": "Cocoa", "LE=F": "Live cattle", "CL=F": "Crude oil", "CT=F": "Cotton", "DBB": "Base metals ETF (DBB)", "DJP": "Broad commodities ETN (DJP)", "HE=F": "Lean hogs", "HO=F": "Heating oil",
                 "KE=F": "KC wheat", "NG=F": "Natural gas", "OJ=F": "Orange juice", "SB=F": "Sugar", "UGA": "Gasoline ETF (UGA)", "UNG": "Natural gas ETF (UNG)", "USO": "Oil ETF (USO)",
                 "ZC=F": "Corn", "ZM=F": "Soybean meal", "ZO=F": "Oats", "ZW=F": "Chicago wheat", "EWY": "South Korea equities (EWY)", "EWZ": "Brazil equities (EWZ)", "FXI": "China equities (FXI)", "HG=F": "Copper", "INRUSD=X": "Indian rupee", "KC=F": "Coffee",
                 "RB=F": "Gasoline", "ZARUSD=X": "South African rand", "ZS=F": "Soybeans"}
@@ -490,7 +494,7 @@ def payload_all():
         fam = tb["X"].str.split("_").str[0]
         enso = fam.isin(["ONI", "NINO34", "NINO12", "NINO3", "NINO4", "MEI2", "SOI"])
         keys = tb.groupby(["Y", "direction", "tau_future"]).ngroups
-        pl.update({"id": bid, "label": b["label"], "frozen_on": b["frozen"], "frozen_rows_n": int(len(tb)),
+        pl.update({"id": bid, "label": b["label"], "note": b.get("note", ""), "frozen_on": b["frozen"], "frozen_rows_n": int(len(tb)),
                    "redundancy": (f"{int(enso.sum())} of the {len(tb)} rows come from ENSO indices that move together, so they restate one ocean state and reduce to {keys} distinct target, direction and horizon keys, "
                                   f"not {len(tb)} independent findings." if enso.sum() > 0.5 * len(tb) else "")})
         out.append(pl)
