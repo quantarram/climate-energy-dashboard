@@ -2,7 +2,7 @@
 The one daily pipeline (run after the ECMWF 00z open-data cycle is published, ~07:35 UTC).
 
   Stage 1, signals (needs no weather forecast, never blocked by a forecast outage): refresh the NOAA climate indices, extend the price calendar, log new entry events for the frozen climate
-  signals, update the shock-monitor prices, and write data/signals.json for the front page.
+  signals, and write data/signals.json for the front page.
   Stage 2, archive (daily weather panels, still scored for the registered experiment):
   1. fetch the IFS 2 m temperature forecast for the pilot load centres (in memory, nothing raw is stored)
   2. regional temperature -> degree days -> demand forecast vs climatology
@@ -37,8 +37,8 @@ def latest_available_date(now):
 
 
 def signals_stage():
-    """Frozen climate signals and the shock monitor. Every step is isolated: a failure keeps the last stored data and the page still builds."""
-    from weatherdash import cpe_climate, shocks, signals_page
+    """Frozen climate signals. Every step is isolated: a failure keeps the last stored data and the page still builds."""
+    from weatherdash import cpe_climate, signals_page
     try:
         table = pd.read_parquet(cpe_climate.TABLE_PATH)
         cpe_climate.fetch_indices(sorted({x.rsplit("_", 1)[0] for x in table["X"]}))
@@ -49,15 +49,9 @@ def signals_stage():
     except Exception as e:  # noqa: BLE001
         print(f"climate ledger step failed: {type(e).__name__}: {str(e)[:150]}")
     try:
-        _, failed = shocks.update_prices()
-        if failed:
-            print("shock-monitor price fetch incomplete:", failed)
-    except Exception as e:  # noqa: BLE001
-        print(f"shock prices failed: {type(e).__name__}: {str(e)[:150]}")
-    try:
         payload = signals_page.assemble()
         json.dump(payload, open(os.path.join(ROOT, "data", "signals.json"), "w"), default=float)
-        print(f"signals payload written: {len(payload['cpe']['watch'])} watched conditions, {sum(1 for w in payload['cpe']['watch'] if w['firing'])} firing, {len(payload['shocks']['gauges'])} gauges")
+        print(f"signals payload written: {len(payload['cpe']['watch'])} watched conditions, {sum(1 for w in payload['cpe']['watch'] if w['firing'])} firing")
     except Exception as e:  # noqa: BLE001
         print(f"signals payload failed (keeping the previous one): {type(e).__name__}: {str(e)[:150]}")
 

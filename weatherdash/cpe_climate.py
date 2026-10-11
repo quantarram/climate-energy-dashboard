@@ -341,7 +341,7 @@ def payload():
                       "now": round(v / scale, 3), "threshold": round(thr / scale, 3), "gap": 0.0 if firing else round(abs(thr - v) / scale, 3), "firing": bool(firing),
                       "n_rows": int(len(sub)), "claimed_cpe": round(float(sub["CPE"].mean()), 3), "test_cpe": round(float(sub["cpe_test"].mean()), 3),
                       "test_base": round(float(sub["base_test"].mean()), 3),
-                      "targets": [{"y": y, "name": TARGET_NAMES.get(y, y), "horizons": sorted(int(h) for h in g["tau_future"])} for y, g in sub.groupby("Y")]})
+                      "targets": [{"y": y, "name": TARGET_NAMES.get(y, y), "horizons": sorted({int(h) for h in g["tau_future"]})} for y, g in sub.groupby("Y")]})
     watch.sort(key=lambda w: (not w["firing"], w["gap"] / (abs(w["threshold"]) + 1e-9)))
     frozen = [{"condition": describe(r.X, int(r.tau_past), float(r.q_X), r.direction), "target": TARGET_NAMES.get(r.Y, r.Y), "horizon": int(r.tau_future), "direction": r.direction,
                "q_Y": float(r.q_Y), "claimed": round(float(r.CPE), 3), "lift": round(float(r.lift), 2), "n_ep_f": int(r.n_ep_f), "test_cpe": round(float(r.cpe_test), 3),
@@ -350,7 +350,18 @@ def payload():
     for e in events:
         e["targets"] = sorted(table[(table.X == e["X"]) & (table.tau_past == e["tau_past"]) & (table.q_X == e["q_X"]) & (table.direction == e["direction"])]["Y"].map(lambda y: TARGET_NAMES.get(y, y)).unique())
         e["condition"] = describe(e["X"], int(e["tau_past"]), float(e["q_X"]), e["direction"])
-    return {"asof": str(prices.index.max().date()), "stats": stats, "watch": watch, "frozen": frozen, "events": events}
+    return {"asof": str(prices.index.max().date()), "enso": enso_state(), "stats": stats, "watch": watch, "frozen": frozen, "events": events}
+
+
+def enso_state():
+    today = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
+    oni = index_series("ONI").dropna()
+    n34 = index_series("NINO34").dropna()
+    oni, n34 = oni[oni.index <= today], n34[n34.index <= today]  # the lagged series carry future publication dates
+    v = float(oni.iloc[-1])
+    cls = "strong El Nino" if v >= 1.5 else "El Nino" if v >= 0.5 else "strong La Nina" if v <= -1.5 else "La Nina" if v <= -0.5 else "neutral"
+    return {"oni": round(v, 2), "oni_available": str(oni.index[-1].date()), "nino34_anom": round(float(n34.iloc[-1]), 2), "nino34_available": str(n34.index[-1].date()),
+            "state": cls, "note": "ONI is published about ten days into the second month after its three-month window; Nino 3.4 monthly on the 15th of the following month."}
 
 
 def main():

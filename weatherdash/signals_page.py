@@ -1,4 +1,4 @@
-"""Front page: the frozen climate signals, their live record, and the shock and policy monitor. Built from data/signals.json (assembled by pipelines/run_daily.py)."""
+"""Front page: the frozen climate signals, their live record. Built from data/signals.json (assembled by pipelines/run_daily.py)."""
 import json
 import os
 from datetime import datetime, timezone
@@ -7,7 +7,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PAGE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Climate and Shock Signals</title>
+<title>Climate Signals</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.27.0/plotly.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -50,13 +50,13 @@ tr.fire td{color:var(--warn)}
 footer{padding:24px var(--pad) 40px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--text3);line-height:1.8}
 footer a{color:var(--text2)}
 </style></head><body>
-<header><div><div class="h-title">Climate and Shock Signals</div>
-<div class="h-sub">Rare, severe, slow climate states, the policy reactions they trigger, and what the prices do</div></div><div class="h-meta" id="hmeta"></div></header>
-<nav><a href="#state">Climate state</a><a href="#watch">Frozen signals</a><a href="#record">Live record</a><a href="#shock">Shock and policy monitor</a><a href="archive.html">Archive: daily weather panels</a></nav>
+<header><div><div class="h-title">Climate Signals</div>
+<div class="h-sub">Rare, severe, slow climate states, frozen as CPE signals and scored forward</div></div><div class="h-meta" id="hmeta"></div></header>
+<nav><a href="#state">Climate state</a><a href="#watch">Frozen signals</a><a href="#record">Live record</a><a href="archive.html">Archive: daily weather panels</a></nav>
 <main>
 <div class="banner"><b>What this page tracks, and why only this.</b> The research behind it tested free weather forecasts against prices for gas, power, crops and energy equities, from daily rules to machine-learning models, and found no
-edge: markets already price what the public forecasts say, and day-to-day weather moves prices far less than their own noise. What did hold up out of sample is rare, severe and slow: strong ocean-climate states (El Ni&ntilde;o above all)
-and the way governments react to the supply shocks that follow. This page follows only that. Every signal in the table was frozen on <b id="frz"></b> from data through 2012 and is scored forward only. The daily weather-to-demand panels, which are
+edge: markets already price what the public forecasts say, and day-to-day weather moves prices far less than their own noise. What did hold up out of sample is rare, severe and slow: strong ocean-climate states (El Ni&ntilde;o above all).
+This page follows only that, as conditional-exceedance (CPE) rows. Every signal in the table was frozen on <b id="frz"></b> from data through 2012 and is scored forward only. The daily weather-to-demand panels, which are
 still scored for the registered experiment, are on the <a href="archive.html">archive page</a>.</div>
 
 <section id="state"><div class="s-title">Climate state now</div>
@@ -78,23 +78,12 @@ still scored for the registered experiment, are on the <a href="archive.html">ar
 <details><summary>All frozen rows</summary><div class="table-wrap"><table id="ftable"></table></div></details>
 <div class="note" id="rnote"></div></section>
 
-<section id="shock"><div class="s-title">Shock and policy monitor</div>
-<div class="s-sub">A weather shock reaches prices through an institution. In the twelve documented export-policy events, restrictions followed high domestic price pressure with thin buffer stocks and no institutional constraint; rainfall alone did not decide it,
-and the price had already run up before the announcement. So the observable to watch is how far each market has already run, next to the climate state that drives the shock.</div>
-<div class="cards" id="gcards"></div>
-<div class="charts"><div><div class="c-label">Trailing 60-trading-day price move (%)</div><div id="gChart"></div></div>
-<div><div class="c-label">Run-up in the 60 trading days before the announcement, as a percentile of all 60-day moves (daily futures)</div><div id="uChart"></div></div></div>
-<div class="note" id="gnote"></div>
-<div class="c-label" style="margin-top:18px">Past policy episodes: what the institutions did</div>
-<div class="table-wrap"><table id="ltable"></table></div>
-<details><summary>Policy events with sources</summary><div class="table-wrap"><table id="ptable"></table></div></details>
-<div class="note" id="snote"></div></section>
 </main>
-<footer>Climate indices: NOAA CPC and PSL &middot; Prices: Yahoo Finance chart data, FRED (World Bank) &middot; Policy events: official notifications and news reports listed per event<br>
+<footer>Climate indices: NOAA CPC and PSL &middot; Prices: Yahoo Finance chart data<br>
 Research record, not a trading or operational tool. <a href="https://github.com/quantarram/weather-impacts-dashboard">Code and data</a></footer>
 <script>
 const D = __DATA__;
-const C = D.cpe, S = D.shocks;
+const C = D.cpe;
 const f = (x, n) => x === null || x === undefined || Number.isNaN(x) ? '' : Number(x).toFixed(n);
 const sgn = (x, n) => (x >= 0 ? '+' : '') + f(x, n);
 const el = id => document.getElementById(id);
@@ -107,7 +96,7 @@ el('hmeta').innerHTML = 'Climate and prices through ' + C.asof + '<br>Updated ' 
 el('frz').textContent = C.stats.table_end + ' (table ' + C.stats.table_sha + ')';
 
 // ---------- climate state
-const E = S.enso, firing = C.watch.filter(w => w.firing);
+const E = C.enso, firing = C.watch.filter(w => w.firing);
 const ensoCls = /El Nino/.test(E.state) ? 'hot' : /La Nina/.test(E.state) ? 'cold' : '';
 const cards = el('cards');
 const card = (name, pill, pcls, big, small, lines) => { const c = document.createElement('div'); c.className = 'card';
@@ -154,33 +143,6 @@ cards.appendChild(card('Frozen conditions firing', firing.length ? 'live' : 'non
     'Claimed is the formation CPE, realised the live hit rate, table base the unconditional frequency in formation, live base the unconditional frequency since the freeze. Overlapping horizons are valid samples; no significance test is used. The longest horizons resolve in late 2027, so for now this is a record of conditions and what is pending.';
 }
 
-// ---------- shock monitor
-{
-  const G = S.gauges, gc = el('gcards');
-  G.forEach(g => { const c = card(g.name, g.elevated ? 'elevated' : 'normal', g.elevated ? 'on' : 'ok', sgn(g.runup_pct_return, 1) + '%', g.frequency.split(', ')[1] + ' move',
-      ['percentile of its own history: <b>' + f(g.runup_percentile, 0) + '</b> (floor before past restrictions: ' + S.runup_floor + ')', 'informs: ' + g.countries + ' &middot; last ' + g.last_date]); gc.appendChild(c); });
-  const col = {'SB=F':'#C8A84A', 'ZW=F':'#7FAAD1', 'ZL=F':'#7FB08A'};
-  Plotly.newPlot('gChart', G.filter(g => col[g.ticker]).map(g => ({x:g.series.map(r => r[0]), y:g.series.map(r => r[1]), name:g.name, type:'scatter', mode:'lines', line:{color:col[g.ticker], width:1.4}})),
-    merge(BASE, {yaxis:merge(BASE.yaxis, {ticksuffix:'%'}), shapes:[{type:'line', xref:'paper', x0:0, x1:1, y0:0, y1:0, line:{color:'#3A3F3A', width:1}}]}), CFG);
-  const R = S.record.runup, cls = {restrict:'#C9784A', relax_imports:'#5B8DBE', relax:'#5B8DBE'};
-  Plotly.newPlot('uChart', [{x:R.map(r => r.event), y:R.map(r => r.pre_pct), type:'bar', marker:{color:R.map(r => cls[r.class] || '#7A8F7A')}, hovertemplate:'%{x}: percentile %{y}<extra></extra>'}],
-    merge(BASE, {yaxis:merge(BASE.yaxis, {range:[0, 100], title:{text:'percentile', font:{size:9}}}), xaxis:merge(BASE.xaxis, {tickfont:{size:8}, type:'category'}), showlegend:false,
-      shapes:[{type:'line', xref:'paper', x0:0, x1:1, y0:S.runup_floor, y1:S.runup_floor, line:{color:'#C8A84A', width:1, dash:'dot'}}]}), CFG);
-  const el2 = G.filter(x => x.elevated).map(x => x.name + (x.frequency.indexOf('monthly') >= 0 ? ' (data to ' + x.last_date.slice(0, 7) + ')' : ''));
-  el('gnote').innerHTML = '<b>Reading it.</b> All ' + S.record.restrict_runup_n + ' restrictions with daily futures came after a run-up at or above the ' + f(S.record.restrict_runup_min, 0) + 'th percentile (orange bars); the same run-up preceded the 2009 import liberalisation (blue). ' +
-    'A high percentile is not a forecast of a ban: it marks the market where the conditions seen before past restrictions are present. Elevated now: <b>' + (el2.length ? el2.join(', ') : 'none') + '</b>. ' +
-    'Climate state: <b>' + E.state + '</b> (ONI ' + sgn(E.oni, 2) + ' &deg;C), the driver behind the Indian monsoon shocks that preceded the 2009 and 2023 episodes.';
-  let t = '<tr><th class="l">Episode</th><th class="l">Country</th><th class="l">Shock</th><th class="l">Stocks</th><th class="l">Price pressure</th><th class="l">Response</th></tr>';
-  S.record.ledger.forEach(r => { const c = r.response_class.indexOf('restrict') === 0 ? 'hot' : ''; t += '<tr><td class="l">' + r.episode + '</td><td class="l">' + r.country + '</td><td class="wrap">' + r.shock_severity + '</td><td class="wrap">' + r.stocks_position + '</td><td class="wrap">' + r.domestic_price_pressure + '</td><td class="wrap"><span class="pill ' + c + '">' + r.response_class.replace(/_/g, ' ') + '</span> ' + r.response + '</td></tr>'; });
-  el('ltable').innerHTML = t;
-  let p = '<tr><th class="l">Event</th><th class="l">Commodity</th><th class="l">Action</th><th class="l">Date</th><th class="l">Weather link</th><th class="l">Verification</th></tr>';
-  S.record.events.forEach(r => { p += '<tr><td class="l">' + r.id + '</td><td class="wrap">' + r.commodity + '</td><td class="wrap">' + r.action + '</td><td class="l">' + r.official_date + '</td><td class="l">' + r.weather_link + '</td><td class="wrap">' + r.verification + '</td></tr>'; });
-  el('ptable').innerHTML = p;
-  const rc = S.record.response_counts;
-  el('snote').innerHTML = '<b>What the record shows.</b> Of ' + S.record.ledger.length + ' shock episodes, ' + Object.keys(rc).map(k => rc[k] + ' ' + k.replace(/_/g, ' ')).join(', ') + '. Restrictions came with thin stocks, high price pressure and no institutional constraint (WTO standing, reputation from an earlier ban); where stocks were large, governments exported or imported instead. ' +
-    'The set is small by nature (rare, slow events), which is the point of the framework: few independent episodes, each carrying a clear mechanism. Dates and sources for every event are in the list above.';
-}
-
 (function () {
   const resizeAll = () => document.querySelectorAll('.js-plotly-plot').forEach(p => Plotly.Plots.resize(p));
   window.addEventListener('load', resizeAll); [100, 400, 1200].forEach(ms => setTimeout(resizeAll, ms));
@@ -192,12 +154,11 @@ cards.appendChild(card('Frozen conditions firing', firing.length ? 'live' : 'non
 
 def assemble():
     """Collect the three data sources into the page payload (each already fault-tolerant at its own level)."""
-    from weatherdash import cpe_climate, shocks
+    from weatherdash import cpe_climate
     cpe = cpe_climate.payload()
     oni = cpe_climate.index_series("ONI").dropna()
     oni = oni[(oni.index >= "1990-01-01") & (oni.index <= datetime.now(timezone.utc).strftime("%Y-%m-%d"))]
-    return {"generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), "cpe": cpe, "shocks": shocks.payload(),
-            "oni": [[str(d.date()), round(float(v), 2)] for d, v in oni.items()]}
+    return {"generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M"), "cpe": cpe, "oni": [[str(d.date()), round(float(v), 2)] for d, v in oni.items()]}
 
 
 def build(out_path=None, payload_path=None):

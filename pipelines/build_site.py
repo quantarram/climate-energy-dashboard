@@ -1,4 +1,4 @@
-"""Build both pages: docs/index.html (signals and shock monitor) and docs/archive.html (daily weather panels)."""
+"""Build both pages: docs/index.html (frozen climate signals) and docs/archive.html (daily weather panels)."""
 import os
 import sys
 

@@ -1,11 +1,9 @@
-# Climate and Shock Signals (formerly the Weather Impacts Dashboard)
+# Climate Signals (formerly the Weather Impacts Dashboard)
 
-One dashboard, one daily pipeline. The front page (`docs/index.html`) follows the information the research found usable: rare, severe, slow climate states and the policy reactions they trigger.
+One dashboard, one daily pipeline. The front page (`docs/index.html`) follows the information the research found usable: rare, severe, slow climate states, as frozen CPE rows.
 
 - **Frozen climate signals**: 43 rows from the CPE engine (ONI, Nino 3.4, SOI, AO, NAO, PDO as slow state series against commodities, equities and currencies), frozen on 2026-10-10 from formation data through 2012,
   with a watchlist of where each condition stands against its threshold, an event log, and a live record scored only on what happens after the freeze (`data/cpe_climate/`, `weatherdash/cpe_climate.py`).
-- **Shock and policy monitor**: twelve verified export-policy events, thirteen shock episodes with stocks, price pressure and the response, an event study of prices around announcements, and live price run-up gauges for
-  sugar, wheat, soy oil and rice next to the ENSO state (`data/shocks/`, `weatherdash/shocks.py`).
 - **Archive** (`docs/archive.html`): the daily weather-to-demand, wind and solar, crop-stress, gas-burn and storage panels, kept because the registered live experiment (`data/decision_registry.json`) is still being scored.
   Free weather forecasts were tested against prices and carry no signal; see the preprint.
 
@@ -44,7 +42,6 @@ Every day (08:30 UTC, after the ECMWF 00z open-data cycle is published) a GitHub
 ## Layout
 ```
 weatherdash/cpe_climate.py    frozen climate signal ledger: indices, watchlist, onset events, forward scoring
-weatherdash/shocks.py         shock and policy monitor: events, reaction ledger, event study, price run-up gauges
 weatherdash/signals_page.py   front page builder (data/signals.json)
 weatherdash/fetch.py      byte-range fetch from the ECMWF mirrors (retry + mirror fallback)
 weatherdash/grib.py       in-memory GRIB decode + bilinear point sampling
