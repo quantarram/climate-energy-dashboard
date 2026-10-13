@@ -68,8 +68,23 @@ def _returns(P):
 
 def _votes(books, P):
     """Per target: (bull count, bear count) arrays over the calendar rows, and the list of supporting rows with their entry."""
-    n = len(P.index) + 320   # vote windows run past the last bar: the extra rows hold the positions in force from the next row on
+    n = len(P.index) + 460   # vote windows run past the last bar: the extra rows hold the positions in force from the next row on
     pos_of = lambda ts: int(P.index.searchsorted(pd.Timestamp(ts)))
+    own_cache = {}
+
+    def expiry_row(y, entry_date, tau):
+        """Calendar row on which a position opened at the entry holds its last day: tau of the target's OWN trading days after its first
+        bar on or after the entry date. Beyond the last bar the date is extrapolated (5/7 of the days are bars for a weekday market)."""
+        if y not in own_cache:
+            o = P[y].dropna()
+            own_cache[y] = (o.index, 1.0 if len(o) and o.index[-400:].dayofweek.nunique() == 7 else 7.0 / 5.0)
+        oi, cal_per_bar = own_cache[y]
+        ent = int(oi.searchsorted(pd.Timestamp(entry_date)))
+        tgt = ent + int(tau)
+        if tgt <= len(oi) - 1:
+            return pos_of(oi[tgt])
+        return pos_of(oi[-1]) + int(np.ceil((tgt - (len(oi) - 1)) * cal_per_bar))
+
     votes, support = {}, {}
     for bid, table, ev in books:
         if ev.empty:
@@ -79,10 +94,11 @@ def _votes(books, P):
             if r.Y not in P.columns:
                 continue
             e = pos_of(r.entry_date)
+            x = expiry_row(r.Y, r.entry_date, r.tau_future)
             a = votes.setdefault(r.Y, np.zeros((2, n), dtype=np.int32))
-            a[0 if r.direction == "bullish" else 1, e + 1:min(n, e + 1 + int(r.tau_future))] += 1
+            a[0 if r.direction == "bullish" else 1, e + 1:min(n, x + 1)] += 1
             support.setdefault(r.Y, []).append({"book": bid, "x": r.X, "tau_past": int(r.tau_past), "q_X": float(r.q_X), "direction": r.direction, "horizon": int(r.tau_future),
-                                                 "entry": str(pd.Timestamp(r.entry_date).date()), "expires_row": e + int(r.tau_future), "claimed": float(r.CPE), "test": float(r.cpe_test), "test_base": float(r.base_test)})
+                                                 "entry": str(pd.Timestamp(r.entry_date).date()), "expires_row": x, "claimed": float(r.CPE), "test": float(r.cpe_test), "test_base": float(r.base_test)})
     return votes, support
 
 

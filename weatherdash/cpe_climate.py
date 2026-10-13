@@ -10,7 +10,7 @@ test (>= 3 test episodes with a hit rate of at least two thirds and a test CPE a
 What is stored (data/cpe_climate/cpe_climate_events.csv): one row per (entry_date, X, tau_past, q_X, direction): the first day on which the climate state crossed its frozen threshold after
 a day on which it had not (plus, for conditions already in the tail on the freeze date, an 'ongoing' entry dated at the freeze). Thresholds for X and Y are frozen in the table
 (from formation data through 2012-12-31). Each event fans out to every table row of that condition; scoring uses the engine's definitions: Y's forward tau_future log move beyond
-the frozen Y threshold (above for bullish, below for bearish), horizons in rows of the price calendar (every calendar day since 2014, weekdays before), an outcome counts once its closing bar is dated before today (UTC).
+the frozen Y threshold (above for bullish, below for bearish), horizons in the target's own trading days (its bars on the seven-day price calendar), an outcome counts once its closing bar is dated before today (UTC).
 
 Climate indices are refetched from NOAA each run (cached copies in data/cpe_climate/indices/ if the fetch fails); the monthly values are lagged for publication (ONI ~10 days into month m+2,
 every other index the 15th of month m+1). Y closes live in data/cpe_climate/prices.parquet (the finance repo's panel calendar up to the freeze, extended daily from Yahoo's chart endpoint).
@@ -342,32 +342,33 @@ def score(ev=None, asof=None):
     ev = ev.copy()
     ev["entry_date"] = pd.to_datetime(ev["entry_date"])
     rows = ev[["entry_date", "kind"] + COND].merge(table, on=COND, how="inner")
-    idx = prices.index
-    pos_of = pd.Series(np.arange(len(idx)), index=idx)
-    rows["pos"] = pos_of.reindex(rows["entry_date"]).values
-    rows["resolve_pos"] = rows["pos"] + rows["tau_future"]
-    rows["resolved"] = rows["resolve_pos"] <= len(idx) - 1
     rows["event"], rows["live_base"] = np.nan, np.nan
     rows["outcome_date"] = pd.NaT
-    live_start = pos_of[idx > TABLE_END].iloc[0] if (idx > TABLE_END).any() else len(idx)
+    # Horizons are in the TARGET's own trading days: the price panel is a seven-day calendar (weekend rows are NaN for FX, futures and
+    # ETFs), so counting rows would make a 252-day horizon 252 calendar days. The outcome opens on the first bar of the target on or after the
+    # entry date (a climate state that crosses on a weekend is traded on the next bar) and closes tau of the target's own bars later.
     for (y, tf), g in rows.groupby(["Y", "tau_future"]):
         if y not in prices.columns:
             continue
-        s = prices[y]
-        fwd = np.log(s.shift(-int(tf)) / s).values
+        tf = int(tf)
+        own = prices[y].dropna()
+        fwd = np.log(own.shift(-tf) / own)
+        ent = own.index.searchsorted(g["entry_date"].values)
+        ok = (ent < len(own)) & (ent + tf <= len(own) - 1)
+        w_all = fwd[own.index > TABLE_END].dropna().values   # the same event on every resolved bar of the live window
         for (qy, d, thr), gg in g.groupby(["q_Y", "direction", "y_threshold"]):
-            r = gg[gg["resolved"]]
+            sel = ok[g.index.get_indexer(gg.index)]
+            r = gg[sel]
             if r.empty:
                 continue
-            f = fwd[r["pos"].astype(int).values]
+            e = ent[g.index.get_indexer(r.index)]
+            f = fwd.values[e]
             flag = (f > thr) if d == "bullish" else (f < thr)
             flag = np.where(np.isnan(f), np.nan, flag.astype(float))
             rows.loc[r.index, "event"] = flag
-            w = fwd[live_start:len(idx) - int(tf)]
-            w = w[~np.isnan(w)]
-            rows.loc[r.index, "live_base"] = float(((w > thr) if d == "bullish" else (w < thr)).mean()) if len(w) else np.nan
-            rows.loc[r.index, "outcome_date"] = idx[r["resolve_pos"].astype(int).values]
-    rows.loc[rows["event"].isna(), "resolved"] = False
+            rows.loc[r.index, "live_base"] = float(((w_all > thr) if d == "bullish" else (w_all < thr)).mean()) if len(w_all) else np.nan
+            rows.loc[r.index, "outcome_date"] = own.index[e + tf]
+    rows["resolved"] = rows["event"].notna()
     return rows, prices.index.max()
 
 
@@ -387,7 +388,7 @@ def live_stats(rows=None, last_bar=None, ev=None):
         row = {"horizon": int(tf), "n_pending": int(len(g) - len(r)), "n": int(len(r))}
         pend = g[~g["resolved"]]
         if len(pend):
-            est = pend["entry_date"] + pd.to_timedelta((pend["tau_future"] * (1.0 if int(pd.read_parquet(PRICES_PATH).index[-400:].dayofweek.nunique()) == 7 else 1.4)).round().astype(int), unit="D")   # rows are calendar days on the seven-day price calendar
+            est = pend["entry_date"] + pd.to_timedelta((pend["tau_future"] * 1.4).round().astype(int), unit="D")   # trading days ~ 1.4 calendar days (approximate)
             row["first_pending"] = str(est.min().date())
         if len(r):
             row.update({"claimed": round(float(r["CPE"].mean()), 4), "hit": round(float(r["event"].mean()), 4), "base": round(float(r["uncond_prob"].mean()), 4),
