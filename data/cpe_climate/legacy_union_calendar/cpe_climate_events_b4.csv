@@ -1,0 +1,3 @@
+entry_date,X,tau_past,q_X,direction,kind,x_move,x_threshold,table_sha
+2026-10-10,TXPDSI_mean,21,0.95,bearish,ongoing_at_freeze,-121.80000000000382,-87.89000000000306,55a05316db
+2026-10-12,WSTPDSI_chg,21,0.9,bullish,onset,0.8071428571428578,0.7814285714285716,55a05316db

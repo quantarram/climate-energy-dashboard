@@ -1,6 +1,6 @@
 """Registered decision experiment: what the frozen climate conditions imply, and what that earns.
 
-The rule (frozen 2026-10-11, scored from 2026-10-12; nothing below changes after that date):
+The rule (frozen 2026-10-11 and re-registered unchanged on 2026-10-14 for the rebuilt trading-day tables, scored from 2026-10-14; nothing below changes after that date):
   * every entry event of the frozen tables registered with the rule (batches 1, 3 and 4; the watch-tier table of 2026-10-12 is a condition ledger only and is outside the rule) opens a vote on (target, direction) for each row of its condition, from the next row of the price calendar until that row's horizon expires;
   * one vote per (target, direction); opposite votes on a target cancel; equal weight 1/N over the N targets with a nonzero vote; positions are recomputed daily from the event logs;
   * cost 10 bp per unit of one-way turnover; log returns; weekend rows are rolled into the next weekday, so 252 trading days make a year.
@@ -19,14 +19,14 @@ from weatherdash import cpe_climate as cc
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DAILY = os.path.join(ROOT, "data", "climate_decisions_daily.csv")
 BACKTEST = os.path.join(ROOT, "data", "cpe_climate", "decision_backtest.json")
-REGISTRATION_DATE = pd.Timestamp("2026-10-12")
+REGISTRATION_DATE = pd.Timestamp("2026-10-14")
 COST = 0.0010
 REVIEWS = [125, 250, 500]
 DRIFT_FROM, DRIFT_TO = pd.Timestamp("2013-01-02"), pd.Timestamp("2026-10-09")
 REGISTRY = {
-    "registered": "2026-10-11", "first_scored_day": str(REGISTRATION_DATE.date()),
+    "registered": "2026-10-11", "re_registered": "2026-10-14", "re_registration_reason": "The tables were rebuilt with horizons in trading days (the first versions counted calendar-day rows); the rule is unchanged and the two days scored under the first tables are kept in data/cpe_climate/legacy_union_calendar/.", "first_scored_day": str(REGISTRATION_DATE.date()),
     "hypothesis": "Positions implied by the frozen climate conditions earn no more, after costs, than holding the same targets, and no more than the drift of each target explains.",
-    "rule": __doc__.split("The rule (frozen 2026-10-11, scored from 2026-10-12; nothing below changes after that date):")[1].split("Benchmarks:")[0].strip(),
+    "rule": __doc__.split("The rule (frozen 2026-10-11 and re-registered unchanged on 2026-10-14 for the rebuilt trading-day tables, scored from 2026-10-14; nothing below changes after that date):")[1].split("Benchmarks:")[0].strip(),
     "benchmarks": "same targets held long at the same weights over the same windows; SPY; drift-adjusted excess (position return minus the target's own mean daily return since 2013, signed by the position)",
     "reviews_trading_days": REVIEWS,
     "evidence_of_edge": "At a review: positive net annualised return, positive drift-adjusted excess, positive beta-adjusted alpha against SPY, and positive in both halves. Otherwise no evidence of an edge.",

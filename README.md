@@ -8,25 +8,28 @@ This is the live counterpart of **Paper 17**, *Why Everyday Weather Does Not Mov
 
 ## What the front page shows
 - **Climate state now**: the Oceanic Nino Index and the Nino 3.4 anomaly.
-- **Frozen conditions**: four tables, 97 conditions in all, each with where the series stands against its threshold, an event log, and a live record of resolved and pending outcomes.
+- **Frozen conditions**: four tables, 159 conditions in all, each with where the series stands against its threshold, an event log, and a live record of resolved and pending outcomes.
 - **Registered decision experiment**: the strong-evidence conditions turned into implied paper positions by one fixed rule, scored daily against holding the same targets and SPY.
 - **A backtest panel** with the causal walk-forward of the same rule (no historical edge).
 
 ## The four frozen tables
 | Table | Rows | Conditions | Series | Frozen | Role |
 |---|---|---|---|---|---|
-| Batch 1 | 43 | 7 | ONI, Nino 3.4, SOI, Arctic, North Atlantic and Pacific Decadal oscillations | 2026-10-10 | survivors; in the decision rule |
-| Batch 3 | 181 | 41 | Nino 1+2/3/4, MEI v2, tropical Atlantic, Atlantic warm pool, PNA, Southern Annular Mode | 2026-10-11 | survivors; in the decision rule |
-| Batch 4 | 38 | 22 | regional drought (Delta, Southeast, Texas, northern plains, West), Trans-Nino, North Pacific Gyre Oscillation, global temperature, snow cover | 2026-10-11 | survivors; in the decision rule |
-| Batch 5 | 44 | 27 | 14 non-ENSO predictor families | 2026-10-12 | watch tier, weaker evidence; condition ledger only |
+| Batch 1 | 145 | 25 | ONI, Nino 3.4, SOI, Arctic and North Atlantic oscillations | 2026-10-14 | survivors; in the decision rule |
+| Batch 3 | 448 | 67 | Nino 1+2/3/4, MEI v2, tropical Atlantic, Atlantic warm pool, PNA, Southern Annular Mode | 2026-10-14 | survivors; in the decision rule |
+| Batch 4 | 50 | 28 | regional drought (Delta, Southeast, Texas, northern plains, West), Trans-Nino, North Pacific Gyre Oscillation, global temperature, snow cover | 2026-10-14 | survivors; in the decision rule |
+| Batch 5 | 55 | 39 | 15 non-ENSO predictor families | 2026-10-14 | watch tier, weaker evidence; condition ledger only |
 
 Tables from weekly freezes (b6, b7, ...) are listed in `data/cpe_climate/books.json`. Most rows are ENSO indices that move together, so they are one ocean state restated, not independent findings; the page says so next to each table.
+
+## Rebuild of 2026-10-14
+The first versions of the four tables (frozen 2026-10-10 to 12) counted every horizon in rows of a price calendar that has a row for every day, so a 252-day horizon was 252 calendar days (about 174 trading days) for weekday markets, and the climate states were laid on that calendar too. All four tables were rebuilt with the same engine, gates, formation split (thresholds from data through 2012) and survivor filter, but with each target's horizon in its own trading days and each climate state on Monday-to-Friday rows. Rebuilding also stopped test episodes whose last day fell on a weekend from being dropped, so more rows reach the test thresholds than before. Every survivor filter ran on data through 2026-10-12, so the ledger scores only what happens after that date; the entry events and the two scored days of the first versions are kept in `data/cpe_climate/legacy_union_calendar/`. The backtest panel (`decision_backtest.json`) was computed before the rebuild, on the first engine output, and has not been recomputed.
 
 ## How a condition is scored
 A condition fires on the first day its series crosses its frozen threshold (conditions already beyond it at the freeze are logged once as "ongoing"). Each firing opens an outcome for every row of that condition: did the target's forward move over the row's horizon (21 to 300 days) land beyond its frozen threshold in the stated direction? The page reports the claimed probability (formation), the realised hit rate and both base rates. Horizons are in the target's own trading days (a 252-day horizon is 252 of its bars, about 14 calendar months for a weekday market). Until 2026-10-14 they were counted in rows of the seven-day price calendar, which made a 252-day horizon 252 calendar days; no outcome had resolved by then, and the registered decision experiment's positions now run for the trading-day horizon. No significance test is used; overlapping horizons are valid samples.
 
 ## Registered decision experiment
-Registered 2026-10-11, scored from 2026-10-12 (`weatherdash/climate_decisions.py`, `data/climate_decisions_daily.csv`). Each firing condition votes on its target's direction until its horizon expires; opposite votes cancel; the active targets are held at equal weight, at 10 bp per unit of turnover. Benchmarks are the same targets held long, SPY, and drift-adjusted excess. Reviews come at 125, 250 and 500 trading days, and the verdict rule ("evidence of an edge" or "no evidence of an edge") is fixed in advance. Positions are paper positions, not advice. The weekly tables are outside this rule.
+Registered 2026-10-11 and re-registered unchanged on 2026-10-14, when the tables were rebuilt with horizons in trading days; scored from 2026-10-14 (`weatherdash/climate_decisions.py`, `data/climate_decisions_daily.csv`; the two days scored under the first tables are in `data/cpe_climate/legacy_union_calendar/`). Each firing condition votes on its target's direction until its horizon expires; opposite votes cancel; the active targets are held at equal weight, at 10 bp per unit of turnover. Benchmarks are the same targets held long, SPY, and drift-adjusted excess. Reviews come at 125, 250 and 500 trading days, and the verdict rule ("evidence of an edge" or "no evidence of an edge") is fixed in advance. Positions are paper positions, not advice. The weekly tables are outside this rule.
 
 ## Daily and weekly routines
 - **Daily** (08:30 UTC, `pipelines/run_daily.py`): refreshes the climate indices and prices, logs new entry events, scores resolved outcomes and rebuilds the page. `python pipelines/daily_summary.py` prints what changed since the previous day.

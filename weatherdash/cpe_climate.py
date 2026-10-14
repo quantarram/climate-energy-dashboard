@@ -5,7 +5,7 @@ CPE climate signal ledger (moved here from the finance repo on 2026-10-11; logic
 The 43 climate rows in data/cpe_climate/cpe_climate_table.parquet are the survivors of an engine-faithful pairwise CPE run on climate predictors (ONI, Nino 3.4, SOI, AO, NAO, PDO as slow
 state series): rows that cleared the engine's gates and the economic prior, rested on at least four separated formation episodes (through 2012), and held up in a chronological
 test (>= 3 test episodes with a hit rate of at least two thirds and a test CPE at least ten points above the test base rate). The survivor filter used data through
-2026-10-10, so nothing before the freeze date is out-of-sample for this table; this ledger records and scores only what happens after it.
+2026-10-12, so nothing before the freeze date is out-of-sample for this table; this ledger records and scores only what happens after it.
 
 What is stored (data/cpe_climate/cpe_climate_events.csv): one row per (entry_date, X, tau_past, q_X, direction): the first day on which the climate state crossed its frozen threshold after
 a day on which it had not (plus, for conditions already in the tail on the freeze date, an 'ongoing' entry dated at the freeze). Thresholds for X and Y are frozen in the table
@@ -35,17 +35,18 @@ TABLE_PATH = os.path.join(HERE, "cpe_climate_table.parquet")
 EVENTS_PATH = os.path.join(HERE, "cpe_climate_events.csv")
 DATA_DIR = os.path.join(HERE, "indices")
 PRICES_PATH = os.path.join(HERE, "prices.parquet")
-TABLE_END = pd.Timestamp("2026-10-10")
-# Each frozen table is a "book" with its own events log and price store. Batch 1 (ONI, Nino 3.4, SOI, AO, NAO, PDO) was frozen 2026-10-10; batch 3 (more slow climate states) 2026-10-11.
-# Both survivor filters ran on data through 2026-10-10, so both books score only what happens after that date.
+TABLE_END = pd.Timestamp("2026-10-12")
+# Each frozen table is a "book" with its own events log and price store. All books were rebuilt and frozen on 2026-10-14 with horizons in trading days (the first versions, frozen 2026-10-10 to 12, counted
+# calendar-day rows; see README). Batch 1: ONI, Nino 3.4, SOI, AO, NAO, PDO; batch 3: more slow climate states; batch 4: drought, Pacific modes, global temperature, snow; batch 5: watch tier.
+# Every survivor filter ran on data through 2026-10-12, so every book scores only what happens after that date.
 BOOKS = {
-    "b1": {"label": "Batch 1: ENSO, Arctic and Atlantic oscillations", "table": "cpe_climate_table.parquet", "events": "cpe_climate_events.csv", "prices": "prices.parquet", "frozen": "2026-10-10", "decisions": True},
+    "b1": {"label": "Batch 1: ENSO, Arctic and Atlantic oscillations", "table": "cpe_climate_table.parquet", "events": "cpe_climate_events.csv", "prices": "prices.parquet", "frozen": "2026-10-14", "decisions": True},
     "b3": {"label": "Batch 3: Nino regions, MEI, tropical Atlantic, PNA, Southern Annular Mode", "table": "cpe_climate_table_b3.parquet", "events": "cpe_climate_events_b3.csv",
-           "prices": "prices_b3.parquet", "frozen": "2026-10-11", "decisions": True},
+           "prices": "prices_b3.parquet", "frozen": "2026-10-14", "decisions": True},
     "b4": {"label": "Batch 4: regional drought, Pacific modes, global temperature, snow cover", "table": "cpe_climate_table_b4.parquet", "events": "cpe_climate_events_b4.csv",
-           "prices": "prices_b4.parquet", "frozen": "2026-10-11", "decisions": True},
+           "prices": "prices_b4.parquet", "frozen": "2026-10-14", "decisions": True},
     "b5": {"label": "Batch 5: watch tier, distinct non-ENSO conditions", "table": "cpe_climate_table_b5.parquet", "events": "cpe_climate_events_b5.csv",
-           "prices": "prices_b5.parquet", "frozen": "2026-10-12", "decisions": False,
+           "prices": "prices_b5.parquet", "frozen": "2026-10-14", "decisions": False,
            "note": "Watch tier: weaker evidence (three formation and two test episodes are enough). One row per predictor family, target and direction, ENSO family excluded (already frozen in 224 rows). "
                    "Scored as a condition and outcome ledger only; it is not part of the registered decision rule."},
 }
@@ -243,36 +244,46 @@ def index_series(name):
 
 
 def climate_series(x, price_index):
-    """Daily series for a predictor name like ONI_chg (the level; increment = change over tau) or ONI_mean (cumulative sum; increment = sum over tau days)."""
+    """Series for a predictor name like ONI_chg (the level; increment = change over tau) or ONI_mean (cumulative sum; increment = sum over tau readings).
+    Monthly states are laid on Monday-Friday rows, so a horizon of tau is tau business days and the cumulative sum adds one reading per weekday; weekend rows are NaN."""
     idx_name, form = x.rsplit("_", 1)
     s = index_series(idx_name)
-    daily = s.reindex(s.index.union(price_index)).ffill().reindex(price_index)
+    bd = pd.bdate_range(price_index.min(), price_index.max())
+    daily = s.reindex(s.index.union(bd)).ffill().reindex(bd)
     daily[daily.index < s.index.min()] = np.nan
-    return daily if form == "chg" else daily.cumsum()
+    out = daily if form == "chg" else daily.cumsum()
+    return out.reindex(price_index)
 
 
 # ----------------------------------------------------------------------------- prices
 def update_prices(today_utc=None):
     """Append calendar rows (every day through yesterday, UTC) to the stored panel and fill closes from Yahoo's chart endpoint.
-    Only dates after the last stored row are written; stored history is never revised. A failed ticker leaves NaN for the new rows."""
+    Only dates after the last stored row are written; stored history is never revised. A failed ticker leaves NaN for the new rows.
+    Yahoo dates every FX bar ('=X') one bar later than the day it closes (the stored panel is aligned, see the finance repo's fx_align.py), so FX bars are
+    moved onto their own day before use: the label holds the next bar's close, the newest bar stays NaN until the following bar exists, and the NaN
+    tail left by the previous run is filled from the same bars (a NaN is filled, a stored value is never changed)."""
     sys.path.insert(0, ROOT)
     from weatherdash import prices as px_mod
     today_utc = today_utc or datetime.now(timezone.utc).date()
     p = pd.read_parquet(PRICES_PATH)
     last = p.index.max()
     want = pd.date_range(last + pd.Timedelta(days=1), pd.Timestamp(today_utc) - pd.Timedelta(days=1))
-    if len(want) == 0:
-        return p, []
     new = pd.DataFrame(np.nan, index=want, columns=p.columns)
+    tail = p.index[-15:]
     failed = []
     for t in p.columns:
         try:
             d = px_mod.fetch_one(t, "1mo").set_index("date")["adjclose"]
             d = d[~d.index.duplicated(keep="last")]
-            new[t] = d.reindex(want).values
+            if str(t).endswith("=X"):
+                d = d[d.index.date < today_utc].dropna()   # a bar dated today is still forming
+                d = d.shift(-1)                              # onto the label of its own day
+                p.loc[tail, t] = p.loc[tail, t].fillna(d.reindex(tail))
+            if len(want):
+                new[t] = d.reindex(want).values
         except Exception as e:  # noqa: BLE001
             failed.append(f"{t}: {type(e).__name__}")
-    p = pd.concat([p, new])
+    p = pd.concat([p, new]) if len(want) else p
     p.to_parquet(PRICES_PATH)
     return p, failed
 
@@ -288,8 +299,9 @@ def load_inputs(today_utc=None, asof=None):
 
 
 def x_increment(x, tau, price_index):
-    s = climate_series(x, price_index)
-    return s - s.shift(tau)
+    """Change over tau business days (NaN on weekend rows)."""
+    s = climate_series(x, price_index).dropna()
+    return (s - s.shift(tau)).reindex(price_index)
 
 
 # ----------------------------------------------------------------------------- events
@@ -301,7 +313,8 @@ def find_entry_events(prices, table, after, include_ongoing_at=None):
         inc = x_increment(r.X, int(r.tau_past), prices.index)
         thr = float(r.x_threshold)
         fire = (inc > thr) if r.direction == "bullish" else (inc < thr)
-        fire = fire.fillna(False)
+        bars = inc.notna()
+        fire = fire.fillna(False)[bars]   # onset is the first business day in the tail after one that was not (weekend rows are not bars)
         onset = fire & ~fire.shift(1, fill_value=False)
         for dt in onset[(onset) & (onset.index > after)].index:
             rows.append((dt.strftime("%Y-%m-%d"), r.X, int(r.tau_past), float(r.q_X), r.direction, "onset", float(inc.loc[dt]), thr, sha))

@@ -1,0 +1,8 @@
+entry_date,X,tau_past,q_X,direction,kind,x_move,x_threshold,table_sha
+2026-10-10,GLBT_chg,252,0.95,bullish,ongoing_at_freeze,0.3699999999999999,0.31999999999999995,da35b55bd9
+2026-10-10,PDO_mean,63,0.9,bearish,ongoing_at_freeze,-170.7300000000023,-80.36999999999625,da35b55bd9
+2026-10-10,PNA_mean,252,0.6,bearish,ongoing_at_freeze,-192.92000000000348,-52.64400000000194,da35b55bd9
+2026-10-10,SEPDSI_mean,21,0.8,bearish,ongoing_at_freeze,-74.23500000000172,-41.03700000000435,da35b55bd9
+2026-10-10,TXPDSI_mean,252,0.95,bearish,ongoing_at_freeze,-1262.639999999979,-850.6315000000099,da35b55bd9
+2026-10-10,WHWP_mean,21,0.95,bullish,ongoing_at_freeze,160.0200000000168,39.94799999999231,da35b55bd9
+2026-10-10,WHWP_mean,63,0.9,bullish,ongoing_at_freeze,381.10000000002583,43.439999999997326,da35b55bd9
